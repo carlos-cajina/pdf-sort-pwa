@@ -113,6 +113,18 @@ BANK_SIGNATURES: Final[dict[str, dict[str, list[str]]]] = {
         "tdc_own": "PAGO DE TDC PROPIA",
         "transfer": "TRANSFERENCIA ENVIADA",
         "programmed_tdc": "PROGRAMASTE EL PAGO DE UNA TARJETA",
+        "clabe_prefixes": {
+            "50": "Santander",
+            "51": "Santander",
+            "52": "Santander",
+            "53": "Santander",
+            "54": "Santander",
+            "55": "Santander",
+            "56": "Santander",
+            "57": "Santander",
+            "58": "Santander",
+            "59": "Santander",
+        },
     },
     "Amex": {
         "source_markers": ["AMERICAN EXPRESS", "CONFIRM PAYMENT"],
