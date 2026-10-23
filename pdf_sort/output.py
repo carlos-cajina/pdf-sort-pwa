@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Literal
@@ -11,6 +12,39 @@ from typing import Literal
 from .extract import TransactionInfo
 
 Status = Literal["renamed", "skipped", "error", "unchanged"]
+
+# ---------------------------------------------------------------------------
+# PII redaction helpers
+# ---------------------------------------------------------------------------
+
+def redact_pii(text: str) -> str:
+    """
+    Redact personally identifiable information from text.
+    
+    Matches:
+    - CLABE-style account numbers (e.g., CCXX, XXXXX, XXX-XXXX-XXXX)
+    - Generic account number patterns
+    - Names that look like personal names (capitalized, common names)
+    """
+    # CLABE-like patterns (Brazilian account numbers)
+    clabe_patterns = [
+        r'\b\d{3}\d{3}\d{3}\d{3}\d{3}\d{4}\b',  # CCXX-XXXX-XXXX-XXXX
+        r'\b\d{3}\d{3}\d{3}\d{3}\d{4}\b',  # XXXXX-XXXX-XXXX-XXXX
+        r'\b\d{3}\d{3}\d{3}\d{3}\d{4}\b',  # XXX-XXXX-XXXX-XXXX
+    ]
+    for pat in clabe_patterns:
+        text = re.sub(pat, '***', text)
+    
+    # Common personal names (case-insensitive)
+    name_pattern = re.compile(
+        r'^[A-Z][a-zA-Z\s]*$',  # Capitalized words (potential names)
+    )
+    # Remove leading/trailing whitespace around potential names
+    text = name_pattern.sub('', text)
+    
+    return text
+
+
 
 
 @dataclass
@@ -89,17 +123,18 @@ def format_text(
     lines.append(sep)
 
     for r in results:
+        original_redacted = redact_pii(r.original)
         if r.status == "error":
-            lines.append(f"{err} {r.original}: {r.error}")
+            lines.append(f"{err} {original_redacted}: {r.error}")
             lines.append("")
             continue
         if r.new_name is None:
-            lines.append(f"{warn} {r.original} — skipped (incomplete info)")
+            lines.append(f"{warn} {original_redacted} — skipped (incomplete info)")
             lines.append("")
             continue
         amt = f"${r.amount:,.2f}" if r.amount is not None else "?"
         dt = r.date or "?"
-        lines.append(f"{ok} {r.original}")
+        lines.append(f"{ok} {original_redacted}")
         lines.append(f"    → {r.new_name}")
         lines.append(f"      ({r.source_bank} → {r.dest_bank}, {amt}, {dt})")
         lines.append("")
