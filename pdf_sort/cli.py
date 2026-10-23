@@ -22,6 +22,7 @@ from .output import (
     RunSummary,
     format_output,
     result_from_plan_item,
+    redact_pii,
     want_color,
 )
 from .rename import deduplicate
@@ -116,6 +117,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Strip unicode status markers and use ASCII labels",
     )
     parser.add_argument(
+        "--redact",
+        action="store_true",
+        help="Redact PII (account numbers, beneficiary names) in log output",
+    )
+    parser.add_argument(
         "-v", "--verbose",
         action="store_true",
         help="Enable debug-level logging",
@@ -123,7 +129,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _extract_entries(copied: list[Path]) -> list[PlanItem]:
+def _extract_entries(copied: list[Path], redact_pii: bool = False) -> list[PlanItem]:
     """Open each PDF and build a plan entry.  Logs per-file status."""
     entries: list[PlanItem] = []
     for path in copied:
@@ -137,8 +143,12 @@ def _extract_entries(copied: list[Path]) -> list[PlanItem]:
             continue
 
         info = extract_info(full_text)
+        original = path.name
+        if redact_pii:
+            original = redact_pii(original)
+
         entries.append({
-            "original": path.name,
+            "original": original,
             "path": path,
             "info": info,
         })
@@ -146,7 +156,7 @@ def _extract_entries(copied: list[Path]) -> list[PlanItem]:
         status = "✓" if info.is_complete() else "⚠"
         amt = f"${info.amount:,.2f}" if info.amount is not None else "NOT FOUND"
         dt = info.date.strftime("%d %b %Y") if info.date else "NOT FOUND"
-        logger.info("%s %s", status, path.name)
+        logger.info("%s %s", status, original)
         logger.info("    Source: %s  →  Dest: %s", info.source_bank, info.dest_bank)
         logger.info("    Amount: %s", amt)
         logger.info("    Date:   %s", dt)
@@ -178,6 +188,7 @@ def main(argv: list[str] | None = None) -> int:
     output_dir = args.output_dir.expanduser().resolve()
     processed_dir = args.processed_dir.expanduser().resolve() if args.processed_dir else None
     renamed_dir = args.renamed_dir.expanduser().resolve() if args.renamed_dir else None
+    redact_pii = args.redact
 
     # ── Step 1: Copy PDFs ──────────────────────────────────────────────
     copied = copy_pdfs(input_dir, output_dir, overwrite=args.overwrite, limit=args.limit)
@@ -188,7 +199,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     # ── Step 2: Extract info ───────────────────────────────────────────
-    entries = _extract_entries(copied)
+    entries = _extract_entries(copied, redact_pii=redact_pii)
 
     # ── Step 3: Build rename plan ───────────────────────────────────────
     plan = deduplicate(entries)
