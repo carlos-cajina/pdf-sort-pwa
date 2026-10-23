@@ -35,6 +35,9 @@ python3 -m pdf_sort
 
 # 2. Actually rename the files
 python3 -m pdf_sort --execute --overwrite
+
+# 3. Redact PII (account numbers, names) in logs
+python3 -m pdf_sort --execute --overwrite --redact
 ```
 
 ---
@@ -59,6 +62,7 @@ options:
   --format {text,json}   Output format: text (default) or JSON
   --interactive          Prompt for confirmation before each rename (execute mode only)
   --no-color             Strip unicode status markers; use ASCII labels
+  --redact               Redact PII (account numbers, beneficiary names) in log output
   -v, --verbose          Enable debug-level logging
   -h, --help             Show this help message and exit
 ```
@@ -155,7 +159,7 @@ transf<SourceBank>_to_<DestinationBank>_x<Amount>_MMMYYYY.pdf
 |-------------|-------------|-------------|
 | **BBVA** | Interbank transfers, SPEI, own-TDC, debit card | `Banco destino:` + `BBVA` markers, `ENLACE PERSONAL`, fuzzy markers |
 | **Banamex** | Interbank transfers, credit card payments | `MiCuenta Banamex`, `Pago a tarjetas Banamex`, `PAGO INTERBANCARIO` |
-| **Santander** | Transfers, credit card payments (own & other), programmed TDC | `Banco Santander` markers, contact info, CLABE |
+| **Santander** | Transfers, credit card payments (own & other), programmed TDC | `Banco Santander` markers, contact info, CLABE, TDC |
 | **Amex** | American Express payments via Santander | `CONFIRM PAYMENT` + `AMERICAN EXPRESS` |
 
 | Destination Bank | Detected From |
@@ -196,12 +200,12 @@ pdf-sort/
 ├── rename_transfers.py          ← deprecated backward-compatible entry point
 ├── pdf_sort/
 │   ├── __init__.py              ← package version
-│   ├── __main__.py              ← `python3 -m pdf_sort`
+│   ├── __main__.py              ← python -m pdf_sort
 │   ├── cli.py                   ← CLI argument parsing, orchestration
-│   ├── extract/                 ← PDF text extraction package
+│   ├── extract/
 │   │   ├── __init__.py
 │   │   ├── models.py            ← TransactionInfo dataclass, text utilities
-│   │   ├── patterns.py          ← compiled regexes, bank signatures
+│   │   ├── patterns.py          ← compiled regexes, bank signatures, CLABE prefixes
 │   │   ├── parsers.py           ← per-bank detection, date/amount parsers
 │   │   └── orchestrator.py      ← identify_banks dispatcher, extract_info
 │   ├── rename.py                ← filename building, deduplication
@@ -215,7 +219,7 @@ pdf-sort/
     ├── test_io.py               ← 16 tests (sanitize, copy, archive)
     ├── test_output.py           ← 45 tests (formatters, color, dataclasses)
     ├── test_cli.py              ← 33 tests (args, main, interactive)
-    └── test_architecture.py     ← architectural property tests
+    └── test_architecture.py     ← 20+ tests (modularity, purity, source index)
 ```
 
 ---
@@ -227,7 +231,7 @@ python3 -m pytest tests/ -v
 ```
 
 ```
-171 passed in 0.18s
+171 passed in 0.16s
 ```
 
 ---
