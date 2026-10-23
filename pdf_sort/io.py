@@ -1,4 +1,4 @@
-"""File I/O operations: copy, sanitize, rename with rollback."""
+"""File I/O operations: copy, sanitize, rename with rollback, archive."""
 
 from __future__ import annotations
 
@@ -7,9 +7,10 @@ import re
 import shutil
 from pathlib import Path
 
+from .types import PlanItem
+
 logger = logging.getLogger(__name__)
 
-# Path sanitization (LO-2)
 _SANITIZE_RE = re.compile(r'[<>:"/\\|?*\s]')
 
 
@@ -18,26 +19,42 @@ def sanitize_filename(name: str) -> str:
     return _SANITIZE_RE.sub("_", name)
 
 
-def copy_pdfs(input_dir: Path, output_dir: Path, overwrite: bool = True) -> list[Path]:
-    """Copy all PDFs from *input_dir* to *output_dir*.
+def build_source_index(input_dir: Path) -> dict[str, Path]:
+    """Build a ``{sanitized_name: real_path}`` lookup dict for all PDFs.
 
-    Returns list of destination paths.  (CR-2 fix: warn on collision,
-    overwrite by default.)
+    Public helper expected by older callers and tests.  Returns an empty
+    dict when *input_dir* does not exist or is not a directory.
+    """
+    if not input_dir.is_dir():
+        return {}
+    return {
+        sanitize_filename(f.name): f
+        for f in input_dir.iterdir()
+        if f.suffix.lower() == ".pdf"
+    }
 
-    Source files that resolve to the same sanitized destination name (e.g.
-    due to Unicode normalization collisions) are de-duplicated: with
-    *overwrite=True* the last file wins; with *overwrite=False* the first
-    file wins and duplicates are skipped.
+
+def copy_pdfs(
+    input_dir: Path,
+    output_dir: Path,
+    overwrite: bool = True,
+    limit: int | None = None,
+) -> list[Path]:
+    """Copy PDFs from *input_dir* to *output_dir*.
+
+    Returns list of destination paths.
     """
     if not input_dir.is_dir():
         logger.error("Input directory does not exist: %s", input_dir)
         return []
-
     output_dir.mkdir(parents=True, exist_ok=True)
+
     pdf_files = sorted(
         f for f in input_dir.iterdir()
         if f.suffix.lower() == ".pdf"
     )
+    if limit is not None:
+        pdf_files = pdf_files[:limit]
 
     if not pdf_files:
         logger.warning("No PDF files found in %s", input_dir)
@@ -62,7 +79,9 @@ def copy_pdfs(input_dir: Path, output_dir: Path, overwrite: bool = True) -> list
                 continue
 
         if dst.exists() and not overwrite:
-            logger.warning("Skipping existing file: %s (use --overwrite to replace)", dst)
+            logger.warning(
+                "Skipping existing file: %s (use --overwrite to replace)", dst,
+            )
         else:
             shutil.copy2(src, dst)
             logger.debug("Copied %s → %s", src.name, dst.name)
@@ -73,126 +92,153 @@ def copy_pdfs(input_dir: Path, output_dir: Path, overwrite: bool = True) -> list
     return list(copied.values())
 
 
-def rename_with_rollback(plan: list[dict], target_dir: Path) -> list[dict]:
-    """Rename files according to *plan*.  Rolls back on failure (HI-4).
+def rename_with_rollback(plan: list[PlanItem], target_dir: Path) -> list[PlanItem]:
+    """Rename files according to *plan*.  Rolls back on failure.
 
-    Each item in *plan* must have keys: ``path`` (current Path) and
-    ``new_name`` (str or None).  Items with ``new_name=None`` are skipped.
+    Each item must have ``path`` (current Path) and ``new_name`` (str or None).
+    Items with ``new_name=None`` are skipped.  Returned items include
+    ``old_path`` and ``new_path``.
     """
-    renamed: list[dict] = []
+    renamed: list[PlanItem] = []
 
     try:
         for item in plan:
-            if item["new_name"] is None:
+            if item.get("new_name") is None:
                 logger.warning("Skipping incomplete record for: %s", item["original"])
                 continue
             old_path: Path = item["path"]
             new_path = target_dir / item["new_name"]
-            old_path.rename(new_path)
+            shutil.move(str(old_path), str(new_path))
             logger.info("✓ %s → %s", item["original"], item["new_name"])
             renamed.append({**item, "old_path": old_path, "new_path": new_path})
     except Exception:
         logger.error("Rename failed — rolling back %d file(s)…", len(renamed))
+        rollback_errors: list[Exception] = []
         for item in reversed(renamed):
-            item["new_path"].rename(item["old_path"])
-            logger.info("Rolled back: %s ← %s", item["original"], item["new_name"])
+            try:
+                shutil.move(str(item["new_path"]), str(item["old_path"]))
+                logger.info("Rolled back: %s ← %s", item["original"], item["new_name"])
+            except Exception as rb_exc:
+                rollback_errors.append(rb_exc)
+                logger.error("Rollback failed for %s: %s", item["original"], rb_exc)
+        if rollback_errors:
+            raise RuntimeError(
+                f"Rename failed and {len(rollback_errors)} rollback error(s) occurred"
+            ) from rollback_errors[0]
         raise
 
     return renamed
 
 
-def build_source_index(input_dir: Path) -> dict[str, Path]:
-    """Build a {sanitized_name: real_path} lookup dict for all PDFs in *input_dir*.
+def _build_source_index(input_dir: Path) -> dict[str, Path]:
+    """Build a single name → Path index of all PDFs in *input_dir*.
 
-    This allows O(1) lookup instead of O(n) scanning when finding source files
-    by their sanitized names.
+    M1: O(n) once instead of O(n) per file.  Includes both raw names
+    and sanitized names so callers can look up by either.
     """
+    index: dict[str, Path] = {}
     if not input_dir.is_dir():
-        return {}
-
-    return {
-        sanitize_filename(f.name): f
-        for f in input_dir.iterdir()
-        if f.suffix.lower() == ".pdf"
-    }
-
-
-def _find_source_in_dir(
-    input_dir: Path,
-    sanitized_name: str,
-    index: dict[str, Path] | None = None,
-) -> Path | None:
-    """Find the real source PDF in *input_dir* whose sanitized name
-    matches *sanitized_name*.  Returns None if no match.
-
-    If *index* is provided (from :func:`build_source_index`), uses O(1)
-    lookup; otherwise falls back to O(n) directory scan.
-    """
-    # Fast path: direct match (must be a .pdf)
-    direct = input_dir / sanitized_name
-    if direct.exists() and direct.suffix.lower() == ".pdf":
-        return direct
-    # Index lookup
-    if index is not None:
-        return index.get(sanitized_name)
-    # Slow path: scan for PDFs whose sanitized name matches
+        return index
     for f in input_dir.iterdir():
-        if f.suffix.lower() == ".pdf" and sanitize_filename(f.name) == sanitized_name:
-            return f
-    return None
+        if f.suffix.lower() != ".pdf":
+            continue
+        index[f.name] = f
+        sanitized = sanitize_filename(f.name)
+        if sanitized != f.name:
+            index[sanitized] = f
+    return index
+
+
+def _find_source_in_dir(input_dir: Path, name: str) -> Path | None:
+    """Find a PDF in *input_dir* matching *name* (raw or sanitized)."""
+    if not input_dir.is_dir():
+        return None
+    index = _build_source_index(input_dir)
+    return index.get(name) or index.get(sanitize_filename(name))
+
+
+def archive_renamed(
+    plan: list[PlanItem],
+    renamed_dir: Path,
+    dry_run: bool = True,
+) -> int:
+    """Copy each renamed file to *renamed_dir*.
+
+    Returns number of items archived.  Skips items with no ``new_path``.
+    """
+    count = 0
+    for item in plan:
+        if item.get("new_name") is None:
+            continue
+        renamed_src = item.get("new_path")
+        if renamed_src is None:
+            continue
+        new_name = item["new_name"]
+        dst = renamed_dir / new_name
+        if dry_run:
+            logger.info("  [DRY RUN] Would copy: %s → %s", new_name, dst)
+        else:
+            renamed_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(renamed_src, dst)
+            logger.info("  Copied to renamed: %s", dst.name)
+        count += 1
+    return count
+
+
+def move_processed(
+    plan: list[PlanItem],
+    input_dir: Path,
+    processed_dir: Path,
+    dry_run: bool = True,
+) -> int:
+    """Move original source PDFs to *processed_dir*.
+
+    Builds a single source index (M1) for O(1) lookups.  Returns number
+    of items moved.
+    """
+    if not input_dir.exists():
+        logger.debug("Input directory missing, nothing to move: %s", input_dir)
+        return 0
+
+    index = _build_source_index(input_dir)
+    count = 0
+    for item in plan:
+        if item.get("new_name") is None:
+            continue
+        src_file = index.get(item["original"]) or index.get(sanitize_filename(item["original"]))
+        if src_file is None:
+            logger.debug(
+                "  Original not found in input dir, skipping move: %s",
+                item["original"],
+            )
+            continue
+        dst = processed_dir / src_file.name
+        if dry_run:
+            logger.info("  [DRY RUN] Would move: %s → %s", src_file.name, dst)
+        else:
+            processed_dir.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(src_file), str(dst))
+            logger.info("  Moved to processed: %s", src_file.name)
+        count += 1
+    return count
 
 
 def archive_processed(
-    plan: list[dict],
+    plan: list[PlanItem],
     input_dir: Path,
     processed_dir: Path | None = None,
     renamed_dir: Path | None = None,
     dry_run: bool = True,
 ) -> tuple[int, int]:
-    """Post-rename archival: copy renamed files to *renamed_dir* and
-    move successfully processed source files from *input_dir* to *processed_dir*.
+    """Back-compat shim: run both ``archive_renamed`` and ``move_processed``.
 
-    Returns (num_copied_to_renamed, num_moved_to_processed).
+    New code should call those two directly.  This wrapper exists so
+    older callers and tests keep working.
     """
     copied = 0
     moved = 0
-
-    # Build source index once for O(1) lookup per file (perf)
-    source_index: dict[str, Path] = build_source_index(input_dir) if processed_dir else {}
-
-    for item in plan:
-        if item.get("new_name") is None:
-            continue
-
-        original_name = item["original"]
-        new_name = item["new_name"]
-        # The renamed file lives at new_path (set by rename_with_rollback)
-        renamed_src = item.get("new_path")
-
-        # ── Copy renamed file to renamed_dir ───────────────────────
-        if renamed_dir is not None and renamed_src is not None:
-            renamed_dir.mkdir(parents=True, exist_ok=True)
-            dst = renamed_dir / new_name
-            if dry_run:
-                logger.info("  [DRY RUN] Would copy: %s → %s", new_name, dst)
-            else:
-                shutil.copy2(renamed_src, dst)
-                logger.info("  Copied to renamed: %s", dst.name)
-            copied += 1
-
-        # ── Move original from input_dir to processed_dir ──────────
-        if processed_dir is not None:
-            src_file = _find_source_in_dir(input_dir, original_name, source_index)
-            if src_file is not None:
-                processed_dir.mkdir(parents=True, exist_ok=True)
-                dst = processed_dir / src_file.name
-                if dry_run:
-                    logger.info("  [DRY RUN] Would move: %s → %s", src_file.name, dst)
-                else:
-                    shutil.move(str(src_file), str(dst))
-                    logger.info("  Moved to processed: %s", src_file.name)
-                moved += 1
-            else:
-                logger.debug("  Original not found in input dir, skipping move: %s", original_name)
-
+    if renamed_dir is not None:
+        copied = archive_renamed(plan, renamed_dir, dry_run=dry_run)
+    if processed_dir is not None:
+        moved = move_processed(plan, input_dir, processed_dir, dry_run=dry_run)
     return copied, moved

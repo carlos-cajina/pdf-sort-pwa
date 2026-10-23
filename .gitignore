@@ -5,6 +5,7 @@ __pycache__/
 *.pdf
 *.egg-info/
 .agents/
+.claude/
 .goose/
 .kilicode/
 skills-lock.json

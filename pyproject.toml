@@ -24,4 +24,8 @@ dev = [
 pdf-sort = "pdf_sort.cli:main"
 
 [tool.setuptools.packages.find]
+where = ["."]
 include = ["pdf_sort*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
