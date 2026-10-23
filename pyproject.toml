@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pdf-sort"
+version = "2.0.0"
+description = "Rename Mexican bank-transfer PDF receipts with consistent filenames"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+dependencies = [
+    "pdfplumber>=0.10.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+]
+
+[project.scripts]
+pdf-sort = "pdf_sort.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pdf_sort*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
