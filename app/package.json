@@ -10,6 +10,7 @@
     "serve": "serve dist -l 4173"
   },
   "devDependencies": {
+    "@types/node": "26.6.6",
     "@types/wicg-file-system-access": "2023.10.7",
     "jsdom": "29.1.1",
     "pdfjs-dist": "6.5.438",
