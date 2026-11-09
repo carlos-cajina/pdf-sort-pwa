@@ -40,6 +40,14 @@ describe("itemsToText", () => {
     expect(itemsToText(items)).toBe("ab");
   });
 
+  it("keeps items on the same line at the exact y tolerance boundary (dy === 3)", () => {
+    const items: TextItem[] = [
+      { str: "a", x: 0, y: 100, width: 10 },
+      { str: "b", x: 12, y: 97, width: 10 }, // dy 3 → same line
+    ];
+    expect(itemsToText(items)).toBe("ab");
+  });
+
   it("starts a new line when the y-gap exceeds tolerance", () => {
     const items: TextItem[] = [
       { str: "top", x: 0, y: 100, width: 20 },
@@ -78,6 +86,7 @@ describe("extractPdfText", () => {
   it("joins text from every page with newline", async () => {
     const mockDoc = {
       numPages: 2,
+      destroy: vi.fn(() => Promise.resolve()),
       getPage: vi.fn((pageNumber: number) =>
         Promise.resolve({
           getTextContent: () =>
@@ -93,10 +102,55 @@ describe("extractPdfText", () => {
         })
       ),
     };
-    getDocument.mockReturnValue({ promise: Promise.resolve(mockDoc) });
+    const loadingTask = {
+      promise: Promise.resolve(mockDoc),
+      destroy: vi.fn(() => Promise.resolve()),
+    };
+    getDocument.mockReturnValue(loadingTask);
 
     const result = await extractPdfText(new ArrayBuffer(0));
     expect(result).toBe("Page1\nPage2");
+    expect(mockDoc.destroy).toHaveBeenCalledOnce();
+    expect(loadingTask.destroy).toHaveBeenCalledOnce();
+  });
+
+  it("supports sequential extractions with a shared worker port", async () => {
+    const createMockDoc = (label: string) => ({
+      numPages: 1,
+      destroy: vi.fn(() => Promise.resolve()),
+      getPage: vi.fn(() =>
+        Promise.resolve({
+          getTextContent: () =>
+            Promise.resolve({
+              items: [
+                {
+                  str: label,
+                  transform: [0, 0, 0, 0, 0, 100],
+                  width: 40,
+                },
+              ],
+            }),
+        })
+      ),
+    });
+
+    const firstTask = {
+      promise: Promise.resolve(createMockDoc("first")),
+      destroy: vi.fn(() => Promise.resolve()),
+    };
+    const secondTask = {
+      promise: Promise.resolve(createMockDoc("second")),
+      destroy: vi.fn(() => Promise.resolve()),
+    };
+
+    getDocument
+      .mockReturnValueOnce(firstTask)
+      .mockReturnValueOnce(secondTask);
+
+    expect(await extractPdfText(new ArrayBuffer(0))).toBe("first");
+    expect(await extractPdfText(new ArrayBuffer(0))).toBe("second");
+    expect(firstTask.destroy).toHaveBeenCalledOnce();
+    expect(secondTask.destroy).toHaveBeenCalledOnce();
   });
 
   it("lets getDocument rejections propagate", async () => {

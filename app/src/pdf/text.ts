@@ -96,22 +96,32 @@ function isPdfTextItem(
  * Rejections from getDocument (encrypted/corrupt PDFs) are allowed to propagate.
  */
 export async function extractPdfText(data: ArrayBuffer): Promise<string> {
-  const doc = await pdfjs.getDocument({ data }).promise;
+  const loadingTask = pdfjs.getDocument({ data });
+  const doc = await loadingTask.promise;
   const pageTexts: string[] = [];
 
-  for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber++) {
-    const page = await doc.getPage(pageNumber);
-    const content = await page.getTextContent();
-    const textItems: TextItem[] = content.items
-      .filter(isPdfTextItem)
-      .filter((item) => item.str !== "")
-      .map((item) => ({
-        str: item.str,
-        x: item.transform[4],
-        y: item.transform[5],
-        width: item.width,
-      }));
-    pageTexts.push(itemsToText(textItems));
+  try {
+    for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber++) {
+      const page = await doc.getPage(pageNumber);
+      const content = await page.getTextContent();
+      const textItems: TextItem[] = content.items
+        .filter(isPdfTextItem)
+        .filter((item) => item.str !== "")
+        .map((item) => ({
+          str: item.str,
+          x: item.transform[4],
+          y: item.transform[5],
+          width: item.width,
+        }));
+      pageTexts.push(itemsToText(textItems));
+    }
+  } finally {
+    // pdf.js 6.5.438 exposes destroy on the loading task; also tolerate a
+    // destroy method on the resolved proxy so tests can mock either shape.
+    await loadingTask.destroy().catch(() => {});
+    await (doc as { destroy?: () => Promise<unknown> }).destroy?.().catch(
+      () => {}
+    );
   }
 
   return pageTexts.join("\n");
