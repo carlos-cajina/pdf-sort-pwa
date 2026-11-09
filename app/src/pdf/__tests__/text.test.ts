@@ -86,7 +86,6 @@ describe("extractPdfText", () => {
   it("joins text from every page with newline", async () => {
     const mockDoc = {
       numPages: 2,
-      destroy: vi.fn(() => Promise.resolve()),
       getPage: vi.fn((pageNumber: number) =>
         Promise.resolve({
           getTextContent: () =>
@@ -110,14 +109,12 @@ describe("extractPdfText", () => {
 
     const result = await extractPdfText(new ArrayBuffer(0));
     expect(result).toBe("Page1\nPage2");
-    expect(mockDoc.destroy).toHaveBeenCalledOnce();
     expect(loadingTask.destroy).toHaveBeenCalledOnce();
   });
 
   it("supports sequential extractions with a shared worker port", async () => {
     const createMockDoc = (label: string) => ({
       numPages: 1,
-      destroy: vi.fn(() => Promise.resolve()),
       getPage: vi.fn(() =>
         Promise.resolve({
           getTextContent: () =>
@@ -153,11 +150,14 @@ describe("extractPdfText", () => {
     expect(secondTask.destroy).toHaveBeenCalledOnce();
   });
 
-  it("lets getDocument rejections propagate", async () => {
-    getDocument.mockReturnValue({
+  it("lets getDocument rejections propagate and still tears down the loading task", async () => {
+    const loadingTask = {
       promise: Promise.reject(new Error("bad pdf")),
-    });
+      destroy: vi.fn(() => Promise.resolve()),
+    };
+    getDocument.mockReturnValue(loadingTask);
 
     await expect(extractPdfText(new ArrayBuffer(0))).rejects.toThrow("bad pdf");
+    expect(loadingTask.destroy).toHaveBeenCalledOnce();
   });
 });

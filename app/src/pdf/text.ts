@@ -97,10 +97,10 @@ function isPdfTextItem(
  */
 export async function extractPdfText(data: ArrayBuffer): Promise<string> {
   const loadingTask = pdfjs.getDocument({ data });
-  const doc = await loadingTask.promise;
   const pageTexts: string[] = [];
 
   try {
+    const doc = await loadingTask.promise;
     for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber++) {
       const page = await doc.getPage(pageNumber);
       const content = await page.getTextContent();
@@ -116,12 +116,7 @@ export async function extractPdfText(data: ArrayBuffer): Promise<string> {
       pageTexts.push(itemsToText(textItems));
     }
   } finally {
-    // pdf.js 6.5.438 exposes destroy on the loading task; also tolerate a
-    // destroy method on the resolved proxy so tests can mock either shape.
     await loadingTask.destroy().catch(() => {});
-    await (doc as { destroy?: () => Promise<unknown> }).destroy?.().catch(
-      () => {}
-    );
   }
 
   return pageTexts.join("\n");
