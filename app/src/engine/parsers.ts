@@ -1,10 +1,12 @@
 /** Date, amount, and per-bank identification parsers. */
 
 import {
+  AMOUNT_PATTERNS,
   DATE_DMY_PATTERNS,
   DATE_NUMERIC_PATTERNS,
   MONTH_MAP_EN,
   MONTH_MAP_ES,
+  MULTILINE_AMOUNT_PATTERNS,
 } from "./patterns";
 
 // ---------------------------------------------------------------------------
@@ -86,6 +88,76 @@ export function parseDate(text: string): Date | null {
         continue;
       }
       return result;
+    }
+  }
+
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Amount parsing
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract the principal transfer amount in MXN.
+ *
+ * Pass 1: full-text multi-line patterns (e.g. Santander label/value
+ * on separate lines).
+ * Pass 2: per-line patterns with fee/commission exclusion.
+ */
+export function extractAmount(text: string): number | null {
+  const feeKeywords = [
+    "COMISIÓN",
+    "COMISION",
+    "IVA",
+    "COSTO",
+    "IMPUESTO",
+    "FEE",
+  ];
+  const labelKeywords = ["IMPORTE", "MONTO"];
+
+  for (const pattern of MULTILINE_AMOUNT_PATTERNS) {
+    const m = pattern.exec(text);
+    if (m) {
+      const captured = m[1];
+      if (captured === undefined) {
+        continue;
+      }
+      const val = Number(captured.replace(/,/g, ""));
+      if (!Number.isNaN(val) && val >= 0) {
+        return val;
+      }
+    }
+  }
+
+  const lines = text.split("\n");
+  for (const pattern of AMOUNT_PATTERNS) {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const lineUpper = line.toUpperCase();
+      if (feeKeywords.some((kw) => lineUpper.includes(kw))) {
+        continue;
+      }
+      const isLabeled = labelKeywords.some((kw) => lineUpper.includes(kw));
+      if (!isLabeled) {
+        const nextLine =
+          i + 1 < lines.length ? lines[i + 1].toUpperCase() : "";
+        if (feeKeywords.some((kw) => nextLine.includes(kw))) {
+          continue;
+        }
+      }
+      const m = pattern.exec(line);
+      if (m) {
+        const captured = m[1];
+        if (captured === undefined) {
+          continue;
+        }
+        const amountStr = captured.replace(/,/g, "");
+        const val = Number(amountStr);
+        if (!Number.isNaN(val) && val >= 0) {
+          return val;
+        }
+      }
     }
   }
 
