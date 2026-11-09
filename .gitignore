@@ -9,3 +9,6 @@ __pycache__/
 .goose/
 .kilicode/
 skills-lock.json
+app/node_modules/
+app/dist/
+app/scripts/parity/expected.json

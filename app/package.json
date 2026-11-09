@@ -1,0 +1,23 @@
+{
+  "name": "pdf-sort-app",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "test": "vitest run",
+    "serve": "serve dist -l 4173"
+  },
+  "devDependencies": {
+    "@types/wicg-file-system-access": "2023.10.7",
+    "jsdom": "29.1.1",
+    "pdfjs-dist": "6.5.438",
+    "serve": "14.2.7",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2",
+    "vite": "8.3.7",
+    "vite-plugin-pwa": "2.0.0",
+    "vitest": "5.1.0"
+  }
+}
