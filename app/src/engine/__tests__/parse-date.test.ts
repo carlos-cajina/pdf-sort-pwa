@@ -7,6 +7,7 @@ describe("parseDate", () => {
     expect(d?.getUTCDate()).toBe(30);
     expect(d?.getUTCMonth()).toBe(3); // April
     expect(d?.getUTCFullYear()).toBe(2026);
+    expect(d?.getUTCHours()).toBe(0);
   });
 
   it("dd mon yyyy spanish", () => {
@@ -118,5 +119,14 @@ describe("parseDate", () => {
   it("two-digit year maps 50-99 to 1900s", () => {
     const d = parseDate("Fecha y hora de operación 27/abr/99");
     expect(d?.getUTCFullYear()).toBe(1999);
+  });
+
+  it("returns null for invalid day in numeric date", () => {
+    // 2026 is not a leap year, so 29 February is invalid.
+    expect(parseDate("Fecha de operación: 29/02/2026")).toBeNull();
+  });
+
+  it("returns null for invalid month in numeric date", () => {
+    expect(parseDate("Fecha: 10/13/2026")).toBeNull();
   });
 });

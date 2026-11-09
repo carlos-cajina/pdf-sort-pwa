@@ -11,6 +11,25 @@ import {
 // Date parsing
 // ---------------------------------------------------------------------------
 
+/**
+ * Build a UTC-midnight Date for the given calendar triple.
+ * Returns null if the triple does not denote a real calendar date
+ * (mirroring Python's datetime(year, month, day) ValueError behaviour).
+ */
+function buildUtcDate(year: number, month: number, day: number): Date | null {
+  const d = new Date(0);
+  d.setUTCFullYear(year, month - 1, day);
+  d.setUTCHours(0, 0, 0, 0);
+  if (
+    d.getUTCFullYear() !== year ||
+    d.getUTCMonth() !== month - 1 ||
+    d.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  return d;
+}
+
 /** Parse day/month/year triplet into a UTC-midnight Date, or null if invalid. */
 function parseDateDmy(
   dayS: string,
@@ -41,12 +60,7 @@ function parseDateDmy(
     return null;
   }
 
-  const timestamp = Date.UTC(year, month - 1, day);
-  if (isNaN(timestamp)) {
-    return null;
-  }
-
-  return new Date(timestamp);
+  return buildUtcDate(year, month, day);
 }
 
 /** Extract a date from receipt text as a UTC-midnight Date. */
@@ -67,11 +81,11 @@ export function parseDate(text: string): Date | null {
       const year = parseInt(m[3], 10);
       const month = parseInt(m[2], 10);
       const day = parseInt(m[1], 10);
-      const timestamp = Date.UTC(year, month - 1, day);
-      if (isNaN(timestamp)) {
+      const result = buildUtcDate(year, month, day);
+      if (!result) {
         continue;
       }
-      return new Date(timestamp);
+      return result;
     }
   }
 
