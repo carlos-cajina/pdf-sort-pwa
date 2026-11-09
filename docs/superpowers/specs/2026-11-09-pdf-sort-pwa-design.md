@@ -67,17 +67,32 @@ A local, installable web app (PWA) that renames Mexican bank-transfer PDF receip
 - **Stack**: Vite + TypeScript, no UI framework (vanilla DOM). pdf.js via npm, bundled; no runtime CDN fetches.
 - **Location**: new `app/` directory in this repo alongside the Python package, so both engines live together and both test suites run from one checkout.
 - **Parity method**: port the five pure modules to `app/src/engine/` as pure functions; port the extraction/rename pytest cases (they are text-string → expected-value) to vitest as the parity guard. `app/README.md` notes that new banks must be added to both engines.
-- **Semantics mirror the CLI**: table of proposed renames by default; Rename writes copies to the output folder; an optional toggle moves originals to a `processed/` subfolder of the input folder; incomplete extractions get a manual-name edit box and are never silently dropped; dedup suffixes `_2`, `_3` assigned within a run.
-- **Folders**: first run asks for input and output folders via `showDirectoryPicker()`; handles stored in IndexedDB; `navigator.storage.persist()` requested; permission re-checked on launch (Chromium re-prompts with a one-click allow).
+- **Parity bar**: identical extraction *results* (therefore filenames) on the real receipt corpus — not byte-identical extracted text. Where the Python code and its tests disagree with docs, the code + tests are the contract (e.g. CHANGELOG's two-digit-year rule is stale; `parsers.py`'s `y < 50 → 20xx` wins). Amount formatting replicates Python's `f"{x:,.2f}"` exactly (round-half-even on the binary double), with half-cent edge cases in the ported tests; month abbreviations are hardcoded English `Jan`–`Dec` per the README's documented format.
+- **Corpus policy (PII)**: the real receipt corpus (RFCs, CLABEs, account numbers) is never committed to this repo. The parity harness reads it from a local, gitignored path (default `~/Downloads`, overridable); committed fixtures are synthetic or scrubbed text only.
+- **Semantics mirror the CLI**: table of proposed renames by default; incomplete extractions get a manual-name edit box and are never silently dropped. Full write semantics settled below.
+- **Folders**: first run asks for input and output folders via `showDirectoryPicker()`; handles stored in IndexedDB; `navigator.storage.persist()` requested. On launch the app checks stored permission with `queryPermission()`; since `requestPermission()` requires a user gesture, re-grant happens via the first button press (e.g. Scan), not automatically on load. If access is declined or absent, the app falls back to the folder-picker state.
 - **Privacy**: no redaction toggle needed — nothing is ever transmitted and nothing is logged outside the page.
-- **PWA shell**: web manifest + service worker precaching all assets (cache-first), pdf.js worker included. App name: "PDF Sort".
+- **PWA shell**: web manifest + service worker precaching all assets (cache-first), pdf.js worker included. App name: "PDF Sort". The one-time install serve uses a **fixed port** (pinned in an `npm run serve` script, e.g. 4173) — an installed PWA is bound to its origin including the port, so a random port would orphan the install, its service worker, and the remembered folder handles. `app/README.md` documents that reinstalls/updates use the same port.
+
+## Write semantics (settled in design review)
+
+These differ from the CLI in deliberate, safe ways; all are my calls:
+
+1. **Single write, final name only.** Each confirmed file is written once, directly under its final name (auto-generated or user-typed). The output folder never holds intermediate or sanitized-original copies. (The CLI leaves sanitized copies of failed extractions in its output folder; the app doesn't — failures get a manual name instead.)
+2. **No silent overwrite.** Names are deduped within a run (`_2`, `_3`, …) as in the CLI; additionally, if a final name already exists in the output folder, the row is flagged as a collision and defaults to a suffix bump, with a per-row choice of bump or skip. (The CLI's `--overwrite` silent overwrite on re-runs is deliberately not reproduced.)
+3. **Manual names** join the same dedup/collision logic as auto names and are sanitized (port of `io.sanitize_filename`) before writing, since typed names may contain `/`, `:`, etc. Auto-generated names contain only safe characters.
+4. **Excluded or left-blank rows** are never written to output and never moved to `processed/`; the original stays in the input folder untouched.
+5. **"Move originals to processed" (optional toggle)** applies only to files successfully written to output; originals keep their original filename (as the CLI does). Destination is pinned to `input/processed/` for simplicity.
+6. **Scanning is non-recursive, top-level only** (matching the CLI's `iterdir()`), so `processed/` is never re-scanned. Only `.pdf` files are considered.
 
 ## What's left to the builder
 
-- **pdf.js text reconstruction (highest-risk item)**: assemble `getTextContent()` items into pdfplumber-like text — group items into lines by Y coordinate, join within line by X, `\n` between lines and between pages — then validate against the user's real receipt corpus. If a receipt's text differs enough to break a parser, tune the reconstruction, not the ported parsers.
-- **Date/timezone port**: the CLI converts timestamps to `America/Mexico_City` via `zoneinfo`. In TS, replicate with `Intl.DateTimeFormat` (`timeZone: 'America/Mexico_City'`) or an equivalent table-free approach; port `parse_date` faithfully and cover it with the ported tests.
-- **UI details**: table layout, per-file include/exclude toggles, manual-name edit box, unreadable-PDF error rows, empty states, progress indication while parsing a large folder, summary after rename.
-- **Install instructions** in `app/README.md`: build, one-time localhost serve, Chrome "Install page as app", and the note that it keeps working offline after install.
+- **pdf.js text reconstruction (highest-risk item)**: assemble `getTextContent()` items into pdfplumber-like text — emulating pdfplumber's character clustering (`x_tolerance`/`y_tolerance` ≈ 3, not naive Y-bucketing; several parsers depend on exact line boundaries, e.g. multiline amount patterns and `TDC *2663 - <bank>` on one line) — then validate against the user's real receipt corpus. Measured on the current corpus, naive Y-bucket + X-sort diverged on 1 of 56 receipts; the bar is identical extraction *results*, and the fix belongs in the reconstruction, never the ported parsers.
+- **Date/timezone port**: `parse_date` produces midnight datetimes with no time component, so only month/year reach filenames and the `zoneinfo` conversion is effectively a no-op for output; port it faithfully anyway and keep the ported tests.
+- **pdf.js version**: pin an exact version in `package.json` and verify the worker bundling strategy under Vite for that version (v4 vs v5 differ).
+- **UI details**: table layout, per-file include/exclude toggles, manual-name edit box, collision and unreadable-PDF rows, empty states, summary after rename.
+- **Performance**: parse with bounded concurrency (≈4 files at a time), one PDF document open per slot, progress indication; a Web Worker only if main-thread chunking proves insufficient.
+- **Install instructions** in `app/README.md`: build, one-time localhost serve on the fixed port, Chrome "Install page as app", and the note that it keeps working offline after install and that updates re-serve on the same port.
 - **Tooling**: how both test suites run (`pytest` and `npm test`); optional nice-to-have: a cross-engine parity script feeding identical text fixtures through both engines and diffing results.
 
 ## Success looks like
