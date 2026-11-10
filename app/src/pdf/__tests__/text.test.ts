@@ -48,6 +48,22 @@ describe("itemsToText", () => {
     expect(itemsToText(items)).toBe("ab");
   });
 
+  it("clusters mixed-size glyphs by glyph top rather than baseline", () => {
+    const items: TextItem[] = [
+      { str: "Importe Pagado:", x: 100, y: 66.06, width: 80, height: 16 },
+      { str: "$2,400", x: 0, y: 66.34, width: 50, height: 24 },
+    ];
+    expect(itemsToText(items)).toBe("$2,400\nImporte Pagado:");
+  });
+
+  it("sorts items by x within a glyph-top cluster", () => {
+    const items: TextItem[] = [
+      { str: "hello", x: 0, y: 100, width: 45, height: 8 },
+      { str: "world", x: 50, y: 100.5, width: 30, height: 8 },
+    ];
+    expect(itemsToText(items)).toBe("hello world");
+  });
+
   it("starts a new line when the y-gap exceeds tolerance", () => {
     const items: TextItem[] = [
       { str: "top", x: 0, y: 100, width: 20 },
@@ -68,10 +84,11 @@ describe("itemsToText", () => {
     expect(itemsToText([])).toBe("");
   });
 
-  it("skips items with empty strings", () => {
+  it("skips empty and whitespace-only items", () => {
     const items: TextItem[] = [
       { str: "hello", x: 0, y: 100, width: 30 },
-      { str: "", x: 35, y: 100, width: 10 },
+      { str: "", x: 32, y: 100, width: 2 },
+      { str: " ", x: 35, y: 100, width: 10, height: 0 },
       { str: "world", x: 50, y: 100, width: 30 },
     ];
     expect(itemsToText(items)).toBe("hello world");
@@ -110,6 +127,42 @@ describe("extractPdfText", () => {
     const result = await extractPdfText(new ArrayBuffer(0));
     expect(result).toBe("Page1\nPage2");
     expect(loadingTask.destroy).toHaveBeenCalledOnce();
+  });
+
+  it("uses pdf.js item heights when clustering mixed-size glyphs", async () => {
+    const mockDoc = {
+      numPages: 1,
+      getPage: vi.fn(() =>
+        Promise.resolve({
+          getTextContent: () =>
+            Promise.resolve({
+              items: [
+                {
+                  str: "Importe Pagado:",
+                  transform: [0, 0, 0, 0, 100, 66.06],
+                  width: 80,
+                  height: 16,
+                },
+                {
+                  str: "$2,400",
+                  transform: [0, 0, 0, 0, 0, 66.34],
+                  width: 50,
+                  height: 24,
+                },
+              ],
+            }),
+        })
+      ),
+    };
+    const loadingTask = {
+      promise: Promise.resolve(mockDoc),
+      destroy: vi.fn(() => Promise.resolve()),
+    };
+    getDocument.mockReturnValue(loadingTask);
+
+    expect(await extractPdfText(new ArrayBuffer(0))).toBe(
+      "$2,400\nImporte Pagado:"
+    );
   });
 
   it("supports sequential extractions with a shared worker port", async () => {

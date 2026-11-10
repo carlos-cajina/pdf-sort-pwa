@@ -5,13 +5,26 @@ import type {
   TextItem as PdfJsTextItem,
   TextMarkedContent,
 } from "pdfjs-dist/types/src/display/api";
-import PdfWorker from "pdfjs-dist/legacy/build/pdf.worker.mjs?worker";
-
 /**
- * Wire pdf.js to its worker in the browser. Guarded so vitest (where Worker is
- * unavailable and the module is mocked) never tries to instantiate it.
+ * Wire pdf.js to its worker in the browser, lazily on first extraction.
+ *
+ * The import is dynamic so plain Node (parity harness via tsx, no Worker
+ * global and no `?worker` resolver) never evaluates the specifier, while
+ * Vite still bundles it as a worker chunk. Guarded so vitest (where Worker
+ * is unavailable and the module is mocked) never instantiates it either.
  */
-if (typeof Worker !== "undefined" && import.meta.env.MODE !== "test") {
+let workerPortReady = false;
+async function ensureWorkerPort(): Promise<void> {
+  if (workerPortReady) {
+    return;
+  }
+  workerPortReady = true;
+  if (typeof Worker === "undefined" || import.meta.env.MODE === "test") {
+    return;
+  }
+  const { default: PdfWorker } = await import(
+    "pdfjs-dist/legacy/build/pdf.worker.mjs?worker"
+  );
   pdfjs.GlobalWorkerOptions.workerPort = new PdfWorker();
 }
 
@@ -21,28 +34,35 @@ export type TextItem = {
   x: number;
   y: number;
   width: number;
+  height?: number;
 };
 
 const X_TOLERANCE = 3;
 const Y_TOLERANCE = 3;
+const ASCENT = 0.75;
 
 /**
  * Reconstruct a pdfplumber-style text representation from geometric text items.
  *
  * Algorithm (fixed by the plan):
- * - Sort by descending y, then ascending x.
- * - Walk items; start a new line whenever prevY - item.y > y_tolerance.
- * - Within a line, insert a space when x - (prev.x + prev.width) > x_tolerance,
- *   otherwise concatenate.
- * - Skip items whose string is empty.
+ * - Estimate each glyph's top as y + ASCENT * height (raw y when height is absent).
+ * - Sort by descending top, then ascending x.
+ * - Walk items; start a new line whenever prev.top - item.top > y_tolerance.
+ * - Sort each line by x, then insert a space when
+ *   x - (prev.x + prev.width) > x_tolerance; otherwise concatenate.
+ * - Skip items whose string is empty or whitespace-only.
  */
 export function itemsToText(items: TextItem[]): string {
   const sorted = items
-    .filter((item) => item.str !== "")
-    .sort((a, b) => (a.y === b.y ? a.x - b.x : b.y - a.y));
+    .filter((item) => item.str.trim() !== "")
+    .map((item) => ({
+      ...item,
+      top: item.y + ASCENT * (item.height ?? 0),
+    }))
+    .sort((a, b) => (a.top === b.top ? a.x - b.x : b.top - a.top));
 
   const lines: string[] = [];
-  let lineItems: TextItem[] = [];
+  let lineItems: (TextItem & { top: number })[] = [];
 
   for (const item of sorted) {
     if (lineItems.length === 0) {
@@ -51,7 +71,7 @@ export function itemsToText(items: TextItem[]): string {
     }
 
     const prev = lineItems[lineItems.length - 1];
-    if (prev.y - item.y > Y_TOLERANCE) {
+    if (prev.top - item.top > Y_TOLERANCE) {
       lines.push(buildLine(lineItems));
       lineItems = [item];
     } else {
@@ -67,10 +87,11 @@ export function itemsToText(items: TextItem[]): string {
 }
 
 function buildLine(lineItems: TextItem[]): string {
-  let line = lineItems[0].str;
-  for (let i = 1; i < lineItems.length; i++) {
-    const prev = lineItems[i - 1];
-    const curr = lineItems[i];
+  const sorted = [...lineItems].sort((a, b) => a.x - b.x);
+  let line = sorted[0].str;
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = sorted[i - 1];
+    const curr = sorted[i];
     const gap = curr.x - (prev.x + prev.width);
     line += gap > X_TOLERANCE ? ` ${curr.str}` : curr.str;
   }
@@ -96,6 +117,7 @@ function isPdfTextItem(
  * Rejections from getDocument (encrypted/corrupt PDFs) are allowed to propagate.
  */
 export async function extractPdfText(data: ArrayBuffer): Promise<string> {
+  await ensureWorkerPort();
   const loadingTask = pdfjs.getDocument({ data });
   const pageTexts: string[] = [];
 
@@ -112,6 +134,7 @@ export async function extractPdfText(data: ArrayBuffer): Promise<string> {
           x: item.transform[4],
           y: item.transform[5],
           width: item.width,
+          height: item.height,
         }));
       pageTexts.push(itemsToText(textItems));
     }
