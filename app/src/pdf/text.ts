@@ -118,7 +118,18 @@ function isPdfTextItem(
  */
 export async function extractPdfText(data: ArrayBuffer): Promise<string> {
   await ensureWorkerPort();
-  const loadingTask = pdfjs.getDocument({ data });
+  const mode = import.meta.env?.MODE;
+  const loadingTask = pdfjs.getDocument(
+    mode === undefined || mode === "test"
+      ? { data }
+      : {
+          data,
+          standardFontDataUrl: new URL(
+            "standard_fonts/",
+            document.baseURI
+          ).toString(),
+        }
+  );
   const pageTexts: string[] = [];
 
   try {
