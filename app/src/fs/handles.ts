@@ -57,6 +57,7 @@ export async function getPermission(
   return handle.queryPermission({ mode: "readwrite" });
 }
 
+/** Requests read/write permission. Must only be called from a user gesture. */
 export async function requestPermission(handle: FileSystemHandle): Promise<boolean> {
   const result = await handle.requestPermission({ mode: "readwrite" });
   return result === "granted";
