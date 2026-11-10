@@ -20,6 +20,8 @@ export type RowOutcome = {
   original: string;
   status: "written" | "moved" | "failed";
   error?: string;
+  /** True when the row failed because its final name already existed in the output folder at write time. */
+  writeCollision?: boolean;
 };
 
 /** Names currently in the output folder — the collision set for planning. Read once up front. */
@@ -122,7 +124,7 @@ export async function executeRenames(
       const bytes = await row.bytes();
       const writeName =
         row.kind === "manual" ? sanitizeFilename(row.finalName) : row.finalName;
-      await writeBytes(outputDir, writeName, bytes);
+      await writeNewFile(outputDir, writeName, bytes);
 
       if (opts.moveProcessed) {
         if (processedDir === null) {
@@ -135,7 +137,16 @@ export async function executeRenames(
         outcomes.push({ original: row.original, status: "written" });
       }
     } catch (error) {
-      outcomes.push({ original: row.original, status: "failed", error: errorMessage(error) });
+      if (error instanceof WriteCollisionError) {
+        outcomes.push({
+          original: row.original,
+          status: "failed",
+          error: error.message,
+          writeCollision: true,
+        });
+      } else {
+        outcomes.push({ original: row.original, status: "failed", error: errorMessage(error) });
+      }
     }
   }
 
@@ -152,6 +163,40 @@ async function writeBytes(
   const writable = await handle.createWritable();
   await writable.write({ type: "write", data: bytes });
   await writable.close();
+}
+
+/**
+ * Write a new file only after proving the name does not already exist.
+ * This is the write-time guard against stale collision sets: the probe must
+ * raise NotFoundError before we create the file. If the probe finds an entry,
+ * the write is rejected as a loud per-row failure instead of silently
+ * overwriting.
+ */
+async function writeNewFile(
+  dir: FileSystemDirectoryHandle,
+  name: string,
+  bytes: ArrayBuffer
+): Promise<void> {
+  try {
+    await dir.getFileHandle(name);
+  } catch (error) {
+    if (isNotFound(error)) {
+      await writeBytes(dir, name, bytes);
+      return;
+    }
+    throw error;
+  }
+  throw new WriteCollisionError(name);
+}
+
+class WriteCollisionError extends Error {
+  constructor(name: string) {
+    super(`${name} already exists in output at write time; a plan may be stale`);
+  }
+}
+
+function isNotFound(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "NotFoundError";
 }
 
 function errorMessage(error: unknown): string {

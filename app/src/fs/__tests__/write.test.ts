@@ -191,6 +191,82 @@ describe("executeRenames", () => {
     expect(await entryNames(processed)).toEqual(["good.pdf"]);
     expect(await entryNames(outputDir)).toEqual(["fine.pdf"]);
   });
+
+  it("fails loudly when the output name appears after planning instead of overwriting", async () => {
+    const inputDir = fakeDir([fakeFile("orig.pdf", "original-content")]);
+    const outputDir = fakeDir([]);
+
+    // Simulate a stale collision set: the name appears after planRenames/readExistingNames.
+    const existing = await outputDir.getFileHandle("target.pdf", { create: true });
+    const writable = await existing.createWritable();
+    await writable.write("existing-content");
+    await writable.close();
+
+    const outcomes = await executeRenames(
+      inputDir,
+      outputDir,
+      [makeRow("orig.pdf", "target.pdf", "original-content")],
+      { moveProcessed: true }
+    );
+
+    expect(outcomes).toEqual([
+      {
+        original: "orig.pdf",
+        status: "failed",
+        error: "target.pdf already exists in output at write time; a plan may be stale",
+        writeCollision: true,
+      },
+    ]);
+
+    // The pre-existing file must NOT be clobbered.
+    const file = await (await outputDir.getFileHandle("target.pdf")).getFile();
+    expect(await file.text()).toBe("existing-content");
+    // The original stays exactly where it was.
+    expect(await entryNames(inputDir)).toEqual(["orig.pdf"]);
+  });
+
+  it("continues the batch after a write-time collision", async () => {
+    const inputDir = fakeDir([
+      fakeFile("collide.pdf", "collide-bytes"),
+      fakeFile("good.pdf", "good-bytes"),
+    ]);
+    const outputDir = fakeDir([]);
+
+    // Seed the collision after the plan-time read.
+    const existing = await outputDir.getFileHandle("collision.pdf", { create: true });
+    const writable = await existing.createWritable();
+    await writable.write("existing-content");
+    await writable.close();
+
+    const outcomes = await executeRenames(
+      inputDir,
+      outputDir,
+      [
+        makeRow("collide.pdf", "collision.pdf", "collide-bytes"),
+        makeRow("good.pdf", "fine.pdf", "good-bytes"),
+      ],
+      { moveProcessed: true }
+    );
+
+    expect(outcomes).toEqual([
+      {
+        original: "collide.pdf",
+        status: "failed",
+        error: "collision.pdf already exists in output at write time; a plan may be stale",
+        writeCollision: true,
+      },
+      { original: "good.pdf", status: "moved" },
+    ]);
+
+    // Existing file untouched, new file written, unaffected original moved.
+    const existingFile = await (await outputDir.getFileHandle("collision.pdf")).getFile();
+    expect(await existingFile.text()).toBe("existing-content");
+    const newFile = await (await outputDir.getFileHandle("fine.pdf")).getFile();
+    expect(await newFile.text()).toBe("good-bytes");
+    expect(await entryNames(inputDir)).toEqual(["collide.pdf", "processed"]);
+    const processed = await inputDir.getDirectoryHandle("processed");
+    expect(await entryNames(processed)).toEqual(["good.pdf"]);
+  });
 });
 
 describe("readExistingNames", () => {
