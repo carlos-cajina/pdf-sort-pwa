@@ -12,17 +12,43 @@ export function fakeFile(name: string, content: string | Blob = ""): FakeEntry {
   return { kind: "file", name, file: new File([blob], name) };
 }
 
+// Live child state per directory entry, shared by every handle that wraps the
+// entry (the `entries` array is only the seed). Without this, a directory
+// fetched twice would see different children, and files created inside a
+// `{ create: true }` subdirectory would vanish on re-fetch.
+const liveChildren = new WeakMap<FakeEntry, Map<string, FakeEntry>>();
+
+function childrenOf(entry: FakeEntry): Map<string, FakeEntry> {
+  let children = liveChildren.get(entry);
+  if (!children) {
+    children = new Map<string, FakeEntry>();
+    if (entry.kind === "directory") {
+      for (const child of entry.entries) {
+        children.set(child.name, child);
+      }
+    }
+    liveChildren.set(entry, children);
+  }
+  return children;
+}
+
 export function fakeDir(
   entries: FakeEntry[] = [],
   options: FakeDirOptions = {}
 ): FileSystemDirectoryHandle {
-  const name = options.name ?? "";
-  let permission = options.permission ?? "prompt";
-
   const children = new Map<string, FakeEntry>();
   for (const entry of entries) {
     children.set(entry.name, entry);
   }
+  return dirHandle(options.name ?? "", children, options.permission ?? "prompt");
+}
+
+function dirHandle(
+  name: string,
+  children: Map<string, FakeEntry>,
+  initialPermission: "granted" | "prompt" | "denied"
+): FileSystemDirectoryHandle {
+  let permission = initialPermission;
 
   const dir: any = {
     kind: "directory",
@@ -33,31 +59,41 @@ export function fakeDir(
         if (entry.kind === "file") {
           yield fileHandle(entry) as unknown as FileSystemHandle;
         } else {
-          yield fakeDir(entry.entries, { name: entry.name, permission }) as FileSystemHandle;
+          yield dirHandle(entry.name, childrenOf(entry), permission) as FileSystemHandle;
         }
       }
     },
 
     async getFileHandle(
       entryName: string,
-      _options?: { create?: boolean }
+      options?: { create?: boolean }
     ): Promise<FileSystemFileHandle> {
       const entry = children.get(entryName);
-      if (!entry || entry.kind !== "file") {
-        throw new DOMException(`Entry ${entryName} not found`, "NotFoundError");
+      if (entry && entry.kind === "file") {
+        return fileHandle(entry) as unknown as FileSystemFileHandle;
       }
-      return fileHandle(entry) as unknown as FileSystemFileHandle;
+      if (!entry && options?.create) {
+        const created: FakeEntry = { kind: "file", name: entryName, file: new File([], entryName) };
+        children.set(entryName, created);
+        return fileHandle(created) as unknown as FileSystemFileHandle;
+      }
+      throw new DOMException(`Entry ${entryName} not found`, "NotFoundError");
     },
 
     async getDirectoryHandle(
       entryName: string,
-      _options?: { create?: boolean }
+      options?: { create?: boolean }
     ): Promise<FileSystemDirectoryHandle> {
       const entry = children.get(entryName);
-      if (!entry || entry.kind !== "directory") {
-        throw new DOMException(`Directory ${entryName} not found`, "NotFoundError");
+      if (entry && entry.kind === "directory") {
+        return dirHandle(entry.name, childrenOf(entry), permission);
       }
-      return fakeDir(entry.entries, { name: entry.name, permission });
+      if (!entry && options?.create) {
+        const created: FakeEntry = { kind: "directory", name: entryName, entries: [] };
+        children.set(entryName, created);
+        return dirHandle(entryName, childrenOf(created), permission);
+      }
+      throw new DOMException(`Directory ${entryName} not found`, "NotFoundError");
     },
 
     async removeEntry(entryName: string, _options?: { recursive?: boolean }): Promise<void> {
