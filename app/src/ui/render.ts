@@ -80,7 +80,10 @@ export function renderApp(
   controls.append(scan);
 
   const renameCount = state.rows.filter(
-    (row) => row.status !== "excluded" && row.finalName !== null
+    (row) =>
+      row.status !== "excluded" &&
+      (row.finalName !== null ||
+        (row.status === "incomplete" && row.manualName.trim() !== ""))
   ).length;
   const rename = actionButton(
     `Rename ${renameCount} files`,

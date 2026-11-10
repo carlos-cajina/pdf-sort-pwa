@@ -104,15 +104,20 @@ describe("renderApp", () => {
     expect(input?.disabled).toBe(false);
   });
 
-  it("disables Rename and labels it zero when no included row has a final name", () => {
+  it("disables Rename and labels it zero when no included row has a final or pending manual name", () => {
     stubDirectoryPicker(true);
     const rows = [
-      makeRow({ status: "excluded", finalName: "stale.pdf" }),
+      makeRow({
+        status: "excluded",
+        finalName: "stale.pdf",
+        manualName: "pending.pdf",
+      }),
       makeRow({
         original: "blank.pdf",
         status: "incomplete",
         proposed: null,
         finalName: null,
+        manualName: "   ",
       }),
     ];
 
@@ -123,6 +128,24 @@ describe("renderApp", () => {
 
     expect(rename?.textContent).toBe("Rename 0 files");
     expect(rename?.disabled).toBe(true);
+  });
+
+  it("enables Rename for an incomplete row with a pending manual name", () => {
+    stubDirectoryPicker(true);
+    const row = makeRow({
+      status: "incomplete",
+      proposed: null,
+      finalName: null,
+      manualName: "typed-name.pdf",
+    });
+
+    const app = renderApp(makeState({ rows: [row] }), makeHandlers());
+    const rename = Array.from(app.querySelectorAll("button")).find(
+      (button) => button.textContent === "Rename 1 files"
+    ) as HTMLButtonElement | undefined;
+
+    expect(rename).toBeDefined();
+    expect(rename?.disabled).toBe(false);
   });
 
   it("shows the graceful browser banner when showDirectoryPicker is absent", () => {
