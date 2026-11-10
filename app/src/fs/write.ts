@@ -22,6 +22,8 @@ export type RowOutcome = {
   error?: string;
   /** True when the row failed because its final name already existed in the output folder at write time. */
   writeCollision?: boolean;
+  /** True when the row failed because its original name already exists in `processed/`. */
+  processedCollision?: boolean;
 };
 
 /** Names currently in the output folder — the collision set for planning. Read once up front. */
@@ -103,8 +105,11 @@ function stripPdfExt(name: string): string {
  * With `moveProcessed`, the original is copied into `inputDir/processed/`
  * under its original name and removed from the input folder — but only after
  * that row's output write succeeded, so a failure always leaves the original
- * exactly where it was. A failed row is reported and the run continues; rows
- * with `finalName: null` (excluded or left blank) are never touched.
+ * exactly where it was. Before the output write, a row whose original name is
+ * already archived in `processed/` fails loudly without writing anything, so a
+ * repeat run can never overwrite a previously archived original. A failed row
+ * is reported and the run continues; rows with `finalName: null` (excluded or
+ * left blank) are never touched.
  */
 export async function executeRenames(
   inputDir: FileSystemDirectoryHandle,
@@ -124,6 +129,19 @@ export async function executeRenames(
       const bytes = await row.bytes();
       const writeName =
         row.kind === "manual" ? sanitizeFilename(row.finalName) : row.finalName;
+
+      // Guard the processed/ archive BEFORE any write. A repeat name must
+      // never clobber a previously archived original (writeBytes would
+      // overwrite it in place); fail the row with nothing written at all.
+      if (opts.moveProcessed) {
+        if (processedDir === null) {
+          processedDir = await findProcessedDir(inputDir);
+        }
+        if (processedDir !== null) {
+          await assertNotInProcessed(processedDir, row.original);
+        }
+      }
+
       await writeNewFile(outputDir, writeName, bytes);
 
       if (opts.moveProcessed) {
@@ -143,6 +161,13 @@ export async function executeRenames(
           status: "failed",
           error: error.message,
           writeCollision: true,
+        });
+      } else if (error instanceof ProcessedCollisionError) {
+        outcomes.push({
+          original: row.original,
+          status: "failed",
+          error: error.message,
+          processedCollision: true,
         });
       } else {
         outcomes.push({ original: row.original, status: "failed", error: errorMessage(error) });
@@ -193,6 +218,44 @@ class WriteCollisionError extends Error {
   constructor(name: string) {
     super(`${name} already exists in output at write time; a plan may be stale`);
   }
+}
+
+class ProcessedCollisionError extends Error {
+  constructor(name: string) {
+    super(
+      `${name} already exists in processed/; clear or rename that archived copy before moving this original (nothing was written)`
+    );
+  }
+}
+
+/** The input folder's `processed/` directory, or null when it does not exist yet. */
+async function findProcessedDir(
+  inputDir: FileSystemDirectoryHandle
+): Promise<FileSystemDirectoryHandle | null> {
+  try {
+    return await inputDir.getDirectoryHandle("processed");
+  } catch (error) {
+    if (isNotFound(error)) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+/** Reject when an archived original already occupies `name` in `processed/`. */
+async function assertNotInProcessed(
+  processedDir: FileSystemDirectoryHandle,
+  name: string
+): Promise<void> {
+  try {
+    await processedDir.getFileHandle(name);
+  } catch (error) {
+    if (isNotFound(error)) {
+      return;
+    }
+    throw error;
+  }
+  throw new ProcessedCollisionError(name);
 }
 
 function isNotFound(error: unknown): boolean {

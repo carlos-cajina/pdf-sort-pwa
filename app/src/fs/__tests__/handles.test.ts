@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, afterEach, vi } from "vitest";
 import {
   pickFolder,
   saveHandle,
@@ -17,14 +17,14 @@ describe("handles", () => {
     delete (globalThis as any).window;
   });
 
-  it("pickFolder delegates to window.showDirectoryPicker", async () => {
+  it("pickFolder delegates to window.showDirectoryPicker with readwrite access", async () => {
     const picked = fakeDir([], { name: "input", permission: "granted" });
-    (globalThis as any).window = {
-      showDirectoryPicker: async () => picked,
-    };
+    const showDirectoryPicker = vi.fn(async () => picked);
+    (globalThis as any).window = { showDirectoryPicker };
 
     const result = await pickFolder();
     expect(result).toBe(picked);
+    expect(showDirectoryPicker).toHaveBeenCalledWith({ mode: "readwrite" });
   });
 
   it("getPermission surfaces prompt and granted from the fake", async () => {

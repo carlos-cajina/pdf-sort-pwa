@@ -223,6 +223,36 @@ describe("renderApp", () => {
     expect(completed.textContent).toContain("2 renamed, 1 skipped, 0 failed");
   });
 
+  it("hides the choose-folders instruction while scanning is busy or progressing", () => {
+    stubDirectoryPicker(true);
+
+    const parsing = renderApp(
+      makeState({ progress: { done: 0, total: 3 } }),
+      makeHandlers()
+    );
+    expect(parsing.textContent).toContain("Parsing 0 of 3 PDFs");
+    expect(parsing.textContent).not.toContain(
+      "Choose input and output folders"
+    );
+
+    const busy = renderApp(makeState({ busy: true }), makeHandlers());
+    expect(busy.textContent).not.toContain("Choose input and output folders");
+
+    const idle = renderApp(makeState(), makeHandlers());
+    expect(idle.textContent).toContain("Choose input and output folders");
+  });
+
+  it("marks the empty arrow column header aria-hidden", () => {
+    stubDirectoryPicker(true);
+
+    const app = renderApp(makeState({ rows: [makeRow()] }), makeHandlers());
+    const headers = Array.from(app.querySelectorAll("thead th"));
+    const arrow = headers.find((header) => header.textContent === "");
+
+    expect(arrow).toBeDefined();
+    expect(arrow?.getAttribute("aria-hidden")).toBe("true");
+  });
+
   it("does not claim the folder is empty when scanning failed", () => {
     stubDirectoryPicker(true);
 

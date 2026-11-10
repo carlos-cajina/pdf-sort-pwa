@@ -26,6 +26,8 @@ Then open `http://localhost:4173`, click the browser's **Install** icon (or Chro
 
 Always serve the installed app from **port 4173**. A different port is treated by the browser as a different app, so any previously granted folder access is lost.
 
+Folder access is remembered across visits; on your first folder pick the app requests persistent storage so those saved handles are less likely to be evicted.
+
 ## Offline behavior
 
 The build produces a precached service worker (`dist/sw.js`). After installation, the app shell, pdf.js worker chunk, and standard fonts are available offline. The first visit after a new build will update the cache.

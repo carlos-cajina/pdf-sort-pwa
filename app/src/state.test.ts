@@ -220,6 +220,41 @@ describe("row updates and planning", () => {
     ]);
   });
 
+  it("appends .pdf to a manual name at plan time and still dedups it", () => {
+    let rows = [
+      makeRow("auto.pdf", { proposed: "receipt.pdf" }),
+      makeRow("manual.pdf", { status: "incomplete", proposed: null }),
+    ];
+    rows = setManualName(rows, "manual.pdf", "receipt");
+
+    const planned = computePlan(rows, new Set());
+
+    expect(planned[1].finalName).toBe("receipt_2.pdf");
+    expect(planned[1].proposed).toBeNull();
+
+    // A lone manual name without an extension keeps the extension in the plan.
+    const standalone = computePlan(
+      setManualName(
+        [makeRow("solo.pdf", { status: "incomplete", proposed: null })],
+        "solo.pdf",
+        "receipt"
+      ),
+      new Set()
+    );
+    expect(standalone[0].finalName).toBe("receipt.pdf");
+
+    // An already-suffixed name (any case) is left alone.
+    const suffixed = computePlan(
+      setManualName(
+        [makeRow("solo.pdf", { status: "incomplete", proposed: null })],
+        "solo.pdf",
+        "RECEIPT.PDF"
+      ),
+      new Set()
+    );
+    expect(suffixed[0].finalName).toBe("RECEIPT.PDF");
+  });
+
   it("excludes an auto row from the plan without mutating the input", () => {
     const rows = [makeRow("auto.pdf", { proposed: "auto.pdf" })];
 

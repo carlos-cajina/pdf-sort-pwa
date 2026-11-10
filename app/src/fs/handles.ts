@@ -1,12 +1,34 @@
 /// <reference types="wicg-file-system-access" />
 
 export async function pickFolder(): Promise<FileSystemDirectoryHandle> {
-  return window.showDirectoryPicker();
+  return window.showDirectoryPicker({ mode: "readwrite" });
 }
 
 declare global {
   interface Window {
     showDirectoryPicker(options?: DirectoryPickerOptions): Promise<FileSystemDirectoryHandle>;
+  }
+}
+
+let persistenceRequested = false;
+
+/**
+ * Ask the browser to keep this origin's stored folder handles durable.
+ *
+ * Must be called from a user gesture (first folder pick or Scan); a
+ * module-level latch keeps it to one request per session. Guests and
+ * unsupported browsers simply skip it; the result is advisory and ignored.
+ */
+export function requestPersistentStorage(): void {
+  if (persistenceRequested) {
+    return;
+  }
+  persistenceRequested = true;
+  if (
+    typeof navigator !== "undefined" &&
+    typeof navigator.storage?.persist === "function"
+  ) {
+    void navigator.storage.persist().catch(() => {});
   }
 }
 

@@ -131,7 +131,12 @@ export function renderApp(
     const empty = document.createElement("p");
     empty.textContent = "No PDFs found in input folder";
     app.append(empty);
-  } else if (!state.scanned && state.notice === null) {
+  } else if (
+    !state.scanned &&
+    state.progress === null &&
+    !state.busy &&
+    state.notice === null
+  ) {
     const empty = document.createElement("p");
     empty.textContent = "Choose input and output folders, then select Scan.";
     app.append(empty);
@@ -200,6 +205,10 @@ function renderRows(
     const cell = document.createElement("th");
     cell.scope = "col";
     cell.textContent = label;
+    if (label === "") {
+      // The arrow column has no header text; keep it out of the a11y tree.
+      cell.setAttribute("aria-hidden", "true");
+    }
     headerRow.append(cell);
   }
   head.append(headerRow);

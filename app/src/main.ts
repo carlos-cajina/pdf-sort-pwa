@@ -3,6 +3,7 @@ import {
   loadHandle,
   pickFolder,
   requestPermission,
+  requestPersistentStorage,
   saveHandle,
 } from "./fs/handles";
 import { scanInputFolder, type ScanEntry } from "./fs/scan";
@@ -178,6 +179,7 @@ async function chooseFolder(kind: "input" | "output"): Promise<void> {
   if (state.busy) {
     return;
   }
+  requestPersistentStorage();
   state = { ...state, busy: true, notice: null };
   render();
 
@@ -223,6 +225,7 @@ async function scan(): Promise<void> {
   if (state.busy || inputDir === null || outputDir === null) {
     return;
   }
+  requestPersistentStorage();
   const input = inputDir;
   const output = outputDir;
   state = {
@@ -337,6 +340,7 @@ async function rename(): Promise<void> {
     const writeCollisions = outcomes.filter(
       (outcome) => outcome.writeCollision === true
     );
+    let cancelledCollisions = false;
     if (writeCollisions.length > 0) {
       const collisionOriginals = writeCollisions
         .map((outcome) => outcome.original)
@@ -355,21 +359,33 @@ async function rename(): Promise<void> {
           moveProcessed
         );
       } else {
-        state = {
-          ...state,
-          notice: `${writeCollisions.length} colliding file(s) were left untouched.`,
-        };
+        cancelledCollisions = true;
       }
     }
 
+    // One composed notice: the Cancel path and the post-retry remainder must
+    // never overwrite each other, and processed/ collisions are just as loud.
+    const notices: string[] = [];
     const remainingCollisions = outcomes.filter(
       (outcome) => outcome.writeCollision === true
     ).length;
-    if (remainingCollisions > 0 && writeCollisions.length > 0) {
-      state = {
-        ...state,
-        notice: `${remainingCollisions} colliding file(s) were left untouched after the run.`,
-      };
+    if (remainingCollisions > 0) {
+      notices.push(
+        cancelledCollisions
+          ? `${remainingCollisions} colliding file(s) were left untouched.`
+          : `${remainingCollisions} colliding file(s) were left untouched after the run.`
+      );
+    }
+    const processedCollisions = outcomes.filter(
+      (outcome) => outcome.processedCollision === true
+    ).length;
+    if (processedCollisions > 0) {
+      notices.push(
+        `${processedCollisions} original(s) already exist in processed/; clear or rename the archived copies before moving them again.`
+      );
+    }
+    if (notices.length > 0) {
+      state = { ...state, notice: notices.join(" ") };
     }
     state = { ...state, summary: summary(state.rows, outcomes) };
   } catch (error) {

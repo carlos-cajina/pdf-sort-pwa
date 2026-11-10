@@ -267,6 +267,50 @@ describe("executeRenames", () => {
     const processed = await inputDir.getDirectoryHandle("processed");
     expect(await entryNames(processed)).toEqual(["good.pdf"]);
   });
+
+  it("fails loudly and writes nothing when the original already exists in processed/", async () => {
+    const inputDir = fakeDir([
+      fakeFile("orig.pdf", "new-content"),
+      fakeFile("other.pdf", "other-content"),
+      {
+        kind: "directory",
+        name: "processed",
+        entries: [fakeFile("orig.pdf", "previous-archive")],
+      },
+    ]);
+    const outputDir = fakeDir([]);
+
+    const outcomes = await executeRenames(
+      inputDir,
+      outputDir,
+      [
+        makeRow("orig.pdf", "renamed.pdf", "new-content"),
+        makeRow("other.pdf", "other-new.pdf", "other-content"),
+      ],
+      { moveProcessed: true }
+    );
+
+    expect(outcomes).toEqual([
+      {
+        original: "orig.pdf",
+        status: "failed",
+        error:
+          "orig.pdf already exists in processed/; clear or rename that archived copy before moving this original (nothing was written)",
+        processedCollision: true,
+      },
+      { original: "other.pdf", status: "moved" },
+    ]);
+
+    // No output was written for the colliding row...
+    expect(await entryNames(outputDir)).toEqual(["other-new.pdf"]);
+    // ...the previously archived original is untouched...
+    const processed = await inputDir.getDirectoryHandle("processed");
+    const archived = await (await processed.getFileHandle("orig.pdf")).getFile();
+    expect(await archived.text()).toBe("previous-archive");
+    // ...the input original stayed put, and the rest of the batch succeeded.
+    expect(await entryNames(inputDir)).toEqual(["orig.pdf", "processed"]);
+    expect(await entryNames(processed)).toEqual(["orig.pdf", "other.pdf"]);
+  });
 });
 
 describe("readExistingNames", () => {

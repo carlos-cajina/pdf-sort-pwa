@@ -8,8 +8,8 @@ vi.mock("pdfjs-dist/legacy/build/pdf.mjs", () => ({
   GlobalWorkerOptions: {},
 }));
 
-vi.mock("pdfjs-dist/legacy/build/pdf.worker.mjs?worker", () => ({
-  default: class MockWorker {},
+vi.mock("pdfjs-dist/legacy/build/pdf.worker.mjs?worker&url", () => ({
+  default: "worker-url.js",
 }));
 
 import { itemsToText, extractPdfText } from "../text";
@@ -165,7 +165,7 @@ describe("extractPdfText", () => {
     );
   });
 
-  it("supports sequential extractions with a shared worker port", async () => {
+  it("supports sequential extractions, tearing down each per-document task", async () => {
     const createMockDoc = (label: string) => ({
       numPages: 1,
       getPage: vi.fn(() =>

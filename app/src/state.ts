@@ -124,7 +124,7 @@ export function computePlan(rows: Row[], existingNames: Set<string>): Row[] {
         row.status === "excluded"
           ? null
           : row.manualName.trim() !== ""
-            ? sanitizeFilename(row.manualName)
+            ? ensurePdfExtension(sanitizeFilename(row.manualName))
             : row.proposed,
     })),
     existingNames
@@ -135,6 +135,11 @@ export function computePlan(rows: Row[], existingNames: Set<string>): Row[] {
     finalName: plannedRow.finalName,
     collision: plannedRow.collision,
   }));
+}
+
+/** Manual names are filenames: add the extension the plan/renamer expects. */
+function ensurePdfExtension(name: string): string {
+  return /\.pdf$/i.test(name) ? name : `${name}.pdf`;
 }
 
 /** Summarize successful writes/moves, unattempted rows, and failures. */

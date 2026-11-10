@@ -6,26 +6,35 @@ import type {
   TextMarkedContent,
 } from "pdfjs-dist/types/src/display/api";
 /**
- * Wire pdf.js to its worker in the browser, lazily on first extraction.
+ * Configure pdf.js's worker in the browser, lazily on first extraction.
  *
- * The import is dynamic so plain Node (parity harness via tsx, no Worker
- * global and no `?worker` resolver) never evaluates the specifier, while
- * Vite still bundles it as a worker chunk. Guarded so vitest (where Worker
- * is unavailable and the module is mocked) never instantiates it either.
+ * The setup is latched as a promise: concurrent first extractions all await
+ * the same settled init, so none can call getDocument before the worker URL
+ * is configured. In the browser we set `workerSrc` to the bundled worker
+ * asset; pdf.js then gives every getDocument call its own PDFWorker, which
+ * makes a per-document `loadingTask.destroy()` safe (no shared workerPort
+ * that a sibling could tear down — mozilla/pdf.js#16777).
+ *
+ * The worker import is dynamic so plain Node (parity harness via tsx, no
+ * Worker global) never evaluates the specifier, while Vite still emits the
+ * worker asset. Guarded so vitest (where Worker is unavailable and the
+ * module is mocked) never evaluates it either.
  */
-let workerPortReady = false;
-async function ensureWorkerPort(): Promise<void> {
-  if (workerPortReady) {
+let workerSetup: Promise<void> | null = null;
+
+function ensureWorker(): Promise<void> {
+  workerSetup ??= setupWorker();
+  return workerSetup;
+}
+
+async function setupWorker(): Promise<void> {
+  if (typeof Worker === "undefined" || import.meta.env?.MODE === "test") {
     return;
   }
-  workerPortReady = true;
-  if (typeof Worker === "undefined" || import.meta.env.MODE === "test") {
-    return;
-  }
-  const { default: PdfWorker } = await import(
-    "pdfjs-dist/legacy/build/pdf.worker.mjs?worker"
+  const { default: workerSrc } = await import(
+    "pdfjs-dist/legacy/build/pdf.worker.mjs?worker&url"
   );
-  pdfjs.GlobalWorkerOptions.workerPort = new PdfWorker();
+  pdfjs.GlobalWorkerOptions.workerSrc = workerSrc;
 }
 
 /** Normalised pdf.js text item used by the clustering algorithm. */
@@ -117,7 +126,7 @@ function isPdfTextItem(
  * Rejections from getDocument (encrypted/corrupt PDFs) are allowed to propagate.
  */
 export async function extractPdfText(data: ArrayBuffer): Promise<string> {
-  await ensureWorkerPort();
+  await ensureWorker();
   const mode = import.meta.env?.MODE;
   const loadingTask = pdfjs.getDocument(
     mode === undefined || mode === "test"
