@@ -36,9 +36,10 @@ export async function readExistingNames(
 /**
  * Plan final names: in-run dedup suffixes `_2`, `_3`… (port of the engine's
  * `deduplicate` semantics), then a further bump when the name already exists
- * in the output folder. Any row whose name was bumped — by either rule — is
- * flagged `collision: true`, so nothing is ever silently overwritten and the
- * UI can show the actual final name.
+ * in the output folder. A row is flagged `collision: true` only when it was
+ * bumped because its name exists in the output folder (spec write-semantics
+ * #2 — never a silent overwrite); in-run dedup suffixes are normal CLI-parity
+ * behavior and do not flag.
  *
  * Pure: returns new objects, mutates nothing, performs no IO. Extra fields on
  * the input rows (e.g. `bytes`/`kind` for `RenameRow`) pass through untouched.
@@ -57,7 +58,7 @@ export function planRenames<T extends { original: string; proposed: string | nul
     counter.set(row.proposed, count);
     const base = stripPdfExt(row.proposed);
     if (count > 1) {
-      return { row, name: `${base}_${count}.pdf`, base, collision: true };
+      return { row, name: `${base}_${count}.pdf`, base, collision: false };
     }
     return { row, name: row.proposed, base, collision: false };
   });

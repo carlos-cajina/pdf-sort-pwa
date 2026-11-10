@@ -55,7 +55,7 @@ describe("planRenames", () => {
     const planned = planRenames(rows, new Set());
 
     expect(planned.map((r) => r.finalName)).toEqual(["dup.pdf", "dup_2.pdf", "dup_3.pdf"]);
-    expect(planned.map((r) => r.collision)).toEqual([false, true, true]);
+    expect(planned.map((r) => r.collision)).toEqual([false, false, false]);
   });
 
   it("bumps past names the run itself already assigned when dodging an existing name", () => {
@@ -67,7 +67,7 @@ describe("planRenames", () => {
     const planned = planRenames(rows, new Set(["x.pdf"]));
 
     expect(planned.map((r) => r.finalName)).toEqual(["x_3.pdf", "x_2.pdf"]);
-    expect(planned.map((r) => r.collision)).toEqual([true, true]);
+    expect(planned.map((r) => r.collision)).toEqual([true, false]);
   });
 
   it("keeps proposed null (excluded or left blank) as finalName null", () => {
