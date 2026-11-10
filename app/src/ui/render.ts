@@ -239,6 +239,7 @@ function renderRows(
       input.disabled = busy;
       input.placeholder = "Enter filename.pdf";
       input.setAttribute("aria-label", `New name for ${row.original}`);
+      input.dataset.manualNameFor = row.original;
       input.addEventListener("change", () => {
         handlers.onManualName(row.original, input.value);
       });

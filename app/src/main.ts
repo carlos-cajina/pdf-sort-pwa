@@ -21,6 +21,7 @@ import {
   toggleRow,
   type Row,
 } from "./state";
+import { flushFocusedManualName } from "./ui/manual-name";
 import {
   renderApp,
   type RenderHandlers,
@@ -28,6 +29,13 @@ import {
 } from "./ui/render";
 
 const app = document.querySelector<HTMLDivElement>("#app");
+let mouseDown = false;
+app?.addEventListener("mousedown", () => {
+  mouseDown = true;
+}, true);
+window.addEventListener("mouseup", () => {
+  mouseDown = false;
+}, true);
 
 let inputDir: FileSystemDirectoryHandle | null = null;
 let outputDir: FileSystemDirectoryHandle | null = null;
@@ -62,6 +70,7 @@ const handlers: RenderHandlers = {
     void rename();
   },
   onToggleRow: (original) => {
+    flushManualName();
     const toggled = toggleRow(state.rows, original);
     state = {
       ...state,
@@ -72,23 +81,71 @@ const handlers: RenderHandlers = {
     render();
   },
   onManualName: (original, name) => {
-    const edited = setManualName(state.rows, original, name);
-    state = {
-      ...state,
-      rows: computePlan(edited, existingOutputNames),
-      summary: null,
-      notice: null,
-    };
-    render();
+    if (commitManualName(original, name)) {
+      renderAfterManualNameEdit();
+    }
   },
   onMoveProcessed: (moveProcessed) => {
+    flushManualName();
     state = { ...state, moveProcessed };
     render();
   },
 };
 
+function commitManualName(original: string, name: string): boolean {
+  const row = state.rows.find((candidate) => candidate.original === original);
+  if (row === undefined || row.manualName === name) {
+    return false;
+  }
+  const edited = setManualName(state.rows, original, name);
+  state = {
+    ...state,
+    rows: computePlan(edited, existingOutputNames),
+    summary: null,
+    notice: null,
+  };
+  return true;
+}
+
+function flushManualName(): void {
+  flushFocusedManualName(state.rows, commitManualName);
+}
+
+function renderAfterManualNameEdit(): void {
+  if (!mouseDown) {
+    render();
+    return;
+  }
+  window.addEventListener(
+    "mouseup",
+    () => {
+      window.setTimeout(render, 0);
+    },
+    { once: true }
+  );
+}
+
 function render(): void {
+  const active = document.activeElement;
+  const manualOriginal =
+    active instanceof HTMLInputElement
+      ? active.dataset.manualNameFor
+      : undefined;
+  const selectionStart =
+    active instanceof HTMLInputElement ? active.selectionStart : null;
+  const selectionEnd =
+    active instanceof HTMLInputElement ? active.selectionEnd : null;
   app?.replaceChildren(renderApp(state, handlers));
+
+  if (app && manualOriginal !== undefined) {
+    const input = Array.from(
+      app.querySelectorAll<HTMLInputElement>("input[data-manual-name-for]")
+    ).find((candidate) => candidate.dataset.manualNameFor === manualOriginal);
+    input?.focus();
+    if (selectionStart !== null && selectionEnd !== null) {
+      input?.setSelectionRange(selectionStart, selectionEnd);
+    }
+  }
 }
 
 async function restoreHandles(): Promise<void> {
@@ -162,6 +219,7 @@ async function chooseFolder(kind: "input" | "output"): Promise<void> {
 
 /** Scan click is the only flow that calls requestPermission. */
 async function scan(): Promise<void> {
+  flushManualName();
   if (state.busy || inputDir === null || outputDir === null) {
     return;
   }
@@ -249,6 +307,7 @@ async function scan(): Promise<void> {
 }
 
 async function rename(): Promise<void> {
+  flushManualName();
   if (state.busy || inputDir === null || outputDir === null) {
     return;
   }
