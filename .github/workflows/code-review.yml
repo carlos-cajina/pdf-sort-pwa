@@ -77,9 +77,12 @@ jobs:
           sticky_summary: 'true'
           # Review only content new since the last checkpoint once the
           # initial full review is done — full re-reviews re-report every
-          # deliberately-kept finding on each push.
+          # deliberately-kept finding on each push. checkpoint_range makes a
+          # full-coverage run record its head in the sticky summary, so the
+          # next run reviews <checkpoint>..<head> only (fail-closed: any doubt
+          # falls back to the full range).
           incremental: 'true'
-          checkpoint_range: 'false'
+          checkpoint_range: 'true'
           # Start in report mode: log what would be resolved, change nothing.
           resolve_outdated: 'report'
           upload_artifacts: 'true'
