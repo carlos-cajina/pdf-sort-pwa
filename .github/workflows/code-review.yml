@@ -3,14 +3,20 @@ name: OpenCodeReview PR Review
 # AI-powered PR review using Alibaba's OpenCodeReview composite action.
 # Docs: https://github.com/alibaba/open-code-review
 #
-# Required repository secrets (Settings -> Secrets and variables -> Actions):
-#   OCR_LLM_URL           - LLM API endpoint (e.g. https://api.openai.com/v1/chat/completions)
-#   OCR_LLM_AUTH_TOKEN    - Authentication token for that endpoint
-#   OCR_LLM_MODEL         - Model name
-#   OCR_LLM_USE_ANTHROPIC - optional; 'true' for the Anthropic protocol, defaults to
-#                           'false' (OpenAI-compatible) when unset
+# LLM configuration (repository secrets: Settings -> Secrets and variables -> Actions)
 #
-# Until those secrets exist the job still runs green and skips the review, so a
+#   OCR_LLM_URL         = https://opencode.ai/inference/go/openai/v1/chat/completions
+#   OCR_LLM_AUTH_TOKEN  = a Console API key (oc_sk_...) — Account -> Personal API keys
+#                         in https://opencode.ai/console. The OpenCode CLI key is NOT
+#                         accepted by this gateway.
+#   OCR_LLM_MODEL       = beam-free            (free, unlimited)
+#                         or any Go model: kimi-k2.7-code, glm-5.3-flash, minimax-m3.1-flash, ...
+#
+# The x-opencode-session header and a non-generic User-Agent are sent through
+# llm_extra_headers below — the Go gateway rejects requests without them
+# (HTTP 400 MissingSessionID / 401).
+#
+# Until the secrets exist the job still runs green and skips the review, so a
 # PR opened before the secrets are configured is not marked failed.
 
 concurrency:
@@ -61,6 +67,9 @@ jobs:
           # specific "thinking" key that strict OpenAI-compatible endpoints
           # reject. Add provider-specific fields here if your model needs them.
           llm_extra_body: '{}'
+          # Go gateway requirements: a stable session id per run (prompt-cache
+          # routing) and a client-identifying user agent.
+          llm_extra_headers: 'x-opencode-session=ses_${{ github.run_id }}-${{ github.run_attempt }},User-Agent=open-code-review-action/1.0'
           github_token: ${{ secrets.GITHUB_TOKEN }}
           # One sticky summary comment per PR, rewritten on each push.
           sticky_summary: 'true'
