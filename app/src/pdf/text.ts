@@ -66,6 +66,9 @@ const X_TOLERANCE = 3;
 const Y_TOLERANCE = 3;
 const ASCENT = 0.75;
 
+/** A text item after top estimation, ready for line clustering. */
+type LineItem = TextItem & { top: number };
+
 /**
  * Reconstruct a pdfplumber-style text representation from geometric text items.
  *
@@ -78,7 +81,7 @@ const ASCENT = 0.75;
  * - Skip items whose string is empty or whitespace-only.
  */
 export function itemsToText(items: TextItem[]): string {
-  const sorted = items
+  const sorted: LineItem[] = items
     .filter((item) => item.str.trim() !== "")
     .map((item) => ({
       ...item,
@@ -87,7 +90,7 @@ export function itemsToText(items: TextItem[]): string {
     .sort((a, b) => (a.top === b.top ? a.x - b.x : b.top - a.top));
 
   const lines: string[] = [];
-  let lineItems: (TextItem & { top: number })[] = [];
+  let lineItems: LineItem[] = [];
 
   for (const item of sorted) {
     if (lineItems.length === 0) {
@@ -111,7 +114,7 @@ export function itemsToText(items: TextItem[]): string {
   return lines.join("\n");
 }
 
-function buildLine(lineItems: TextItem[]): string {
+function buildLine(lineItems: LineItem[]): string {
   if (lineItems.length === 0) {
     return "";
   }
@@ -173,13 +176,19 @@ export async function extractPdfText(data: ArrayBuffer): Promise<string> {
       const content = await page.getTextContent();
       const textItems: TextItem[] = content.items
         .filter(isPdfTextItem)
-        .filter((item) => item.str !== "")
+        // itemsToText skips empty and whitespace-only strings itself; a
+        // second filter here would be a weaker duplicate that can drift.
         .map((item) => ({
           str: item.str,
           x: item.transform[4],
           y: item.transform[5],
           width: item.width,
-          height: item.height,
+          // Coerce non-finite heights: a NaN height would produce NaN tops
+          // and silently corrupt the line clustering.
+          height:
+            typeof item.height === "number" && Number.isFinite(item.height)
+              ? item.height
+              : undefined,
         }));
       pageTexts.push(itemsToText(textItems));
     }

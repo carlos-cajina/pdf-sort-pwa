@@ -24,6 +24,14 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[3]
 EXPECTED_PATH = Path(__file__).resolve().parent / "expected.json"
 
+# The reporter's own prints carry non-ASCII text (child stderr tails with
+# ✓/✗/→ markers, em dashes, corpus paths); force UTF-8 so a C/POSIX locale
+# cannot crash the script after the work is done.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
+
 
 def resolve_corpus(cli_value: str | None) -> Path:
     """--corpus arg > PDF_SORT_CORPUS env > ~/Downloads."""

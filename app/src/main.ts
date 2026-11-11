@@ -153,32 +153,7 @@ function render(): void {
 
 async function restoreHandles(): Promise<void> {
   try {
-    [inputDir, outputDir] = await Promise.all([
-      loadHandle("input"),
-      loadHandle("output"),
-    ]);
-    const [inputPermission, outputPermission] = await Promise.all([
-      inputDir === null ? null : getPermission(inputDir),
-      outputDir === null ? null : getPermission(outputDir),
-    ]);
-    if (
-      inputDir !== null &&
-      outputDir !== null &&
-      (await inputDir.isSameEntry(outputDir))
-    ) {
-      throw new Error(
-        "The stored input and output folders are the same directory; pick them again"
-      );
-    }
-    state = {
-      ...state,
-      inputFolderName: inputDir?.name ?? null,
-      outputFolderName: outputDir?.name ?? null,
-      inputPermissionNeeded:
-        inputDir !== null && inputPermission !== "granted",
-      outputPermissionNeeded:
-        outputDir !== null && outputPermission !== "granted",
-    };
+    await restoreHandlesInner();
   } catch (error) {
     // Never leave module handles populated while the UI shows nothing: a
     // failed restore must leave both handles and the visible state null so
@@ -203,6 +178,82 @@ async function restoreHandles(): Promise<void> {
   }
 }
 
+async function restoreHandlesInner(): Promise<void> {
+  // Restore each saved handle independently: a failure on one side must not
+  // discard a still-valid other. Only the same-directory conflict invalidates
+  // both, because the pair is unusable as configured.
+  const [loadedInput, loadedOutput] = await Promise.allSettled([
+    loadHandle("input"),
+    loadHandle("output"),
+  ]);
+  const inputFailed = loadedInput.status === "rejected";
+  const outputFailed = loadedOutput.status === "rejected";
+  const restoredInput =
+    loadedInput.status === "fulfilled" ? loadedInput.value : null;
+  const restoredOutput =
+    loadedOutput.status === "fulfilled" ? loadedOutput.value : null;
+
+  // A permission probe failure only means "ask again on Scan"; the handle
+  // itself is fine, so it must not be dropped.
+  const [inputPermission, outputPermission] = await Promise.all([
+    restoredInput === null
+      ? Promise.resolve(null)
+      : getPermission(restoredInput).catch(() => null),
+    restoredOutput === null
+      ? Promise.resolve(null)
+      : getPermission(restoredOutput).catch(() => null),
+  ]);
+
+  if (restoredInput !== null && restoredOutput !== null) {
+    // Fail closed: if the comparison itself fails, treat the pair as a
+    // conflict and require both to be picked again.
+    let same = true;
+    try {
+      same = await restoredInput.isSameEntry(restoredOutput);
+    } catch {
+      same = true;
+    }
+    if (same) {
+      inputDir = null;
+      outputDir = null;
+      scannedEntries = [];
+      existingOutputNames = new Set<string>();
+      state = {
+        ...state,
+        inputFolderName: null,
+        outputFolderName: null,
+        inputPermissionNeeded: false,
+        outputPermissionNeeded: false,
+        rows: [],
+        scanned: false,
+        progress: null,
+        notice:
+          "The stored input and output folders are the same directory; pick them again",
+      };
+      render();
+      return;
+    }
+  }
+
+  inputDir = inputFailed ? null : restoredInput;
+  outputDir = outputFailed ? null : restoredOutput;
+  scannedEntries = [];
+  existingOutputNames = new Set<string>();
+  state = {
+    ...state,
+    inputFolderName: inputDir?.name ?? null,
+    outputFolderName: outputDir?.name ?? null,
+    inputPermissionNeeded:
+      inputDir !== null && inputPermission !== "granted",
+    outputPermissionNeeded:
+      outputDir !== null && outputPermission !== "granted",
+    notice:
+      inputFailed || outputFailed
+        ? "A saved folder could not be restored; pick it again."
+        : null,
+  };
+}
+
 async function chooseFolder(kind: "input" | "output"): Promise<void> {
   if (state.busy) {
     return;
@@ -225,8 +276,11 @@ async function chooseFolder(kind: "input" | "output"): Promise<void> {
       };
       return;
     }
-    await saveHandle(kind, handle);
+    // Ask permission before persisting: if the permission step failed after a
+    // save, IndexedDB would hold a handle the visible state never adopted
+    // until reload.
     const permission = await getPermission(handle);
+    await saveHandle(kind, handle);
 
     if (kind === "input") {
       inputDir = handle;
@@ -341,6 +395,11 @@ async function scan(): Promise<void> {
       progress: null,
     };
   } catch (error) {
+    // A mid-scan failure must not leave stale accumulators behind: rename()
+    // plans against scannedEntries and the existing-name set, so a partial
+    // scan result could otherwise be used by the next click.
+    scannedEntries = [];
+    existingOutputNames = new Set<string>();
     state = {
       ...state,
       notice: errorMessage(error),
@@ -455,7 +514,10 @@ async function retryWriteCollisions(
     collisionNames.has(row.original)
   );
   const freshNames = await readExistingNames(output);
-  existingOutputNames = freshNames;
+  // Union, not replace: the names recorded from the first run were just
+  // written, and a stale directory read must never let a replanned collision
+  // pick an already-occupied output name.
+  existingOutputNames = new Set([...existingOutputNames, ...freshNames]);
   const replanned = computePlan(collisionRows, freshNames);
   const replannedByOriginal = new Map(
     replanned.map((row) => [row.original, row])
@@ -508,6 +570,12 @@ function toRenameRows(rows: Row[], entries: ScanEntry[]): RenameRow[] {
 function recordSuccessfulNames(rows: Row[], outcomes: RowOutcome[]): void {
   const rowsByOriginal = new Map(rows.map((row) => [row.original, row]));
   for (const outcome of outcomes) {
+    // A failed row can still have written its output (the archive step failed
+    // afterwards); that name is occupied in the output folder and must join
+    // the collision set even though the row is not "written"/"moved".
+    if (outcome.writtenName !== undefined) {
+      existingOutputNames.add(outcome.writtenName);
+    }
     if (outcome.status !== "written" && outcome.status !== "moved") {
       continue;
     }

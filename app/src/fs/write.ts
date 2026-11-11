@@ -24,6 +24,12 @@ export type RowOutcome = {
   writeCollision?: boolean;
   /** True when the row failed because its original name already exists in `processed/`. */
   processedCollision?: boolean;
+  /**
+   * Set on failed rows whose output file was nevertheless written before the
+   * failure (e.g. the processed/ archive step): that name is now occupied in
+   * the output folder and must join the collision set.
+   */
+  writtenName?: string;
 };
 
 /** Names currently in the output folder — the collision set for planning. Read once up front. */
@@ -125,6 +131,9 @@ export async function executeRenames(
       continue;
     }
 
+    // Set once the output write has landed, so a later failure can report
+    // that the name is now occupied in the output folder.
+    let writtenName: string | null = null;
     try {
       const bytes = await row.bytes();
       const writeName =
@@ -143,6 +152,7 @@ export async function executeRenames(
       }
 
       await writeNewFile(outputDir, writeName, bytes);
+      writtenName = writeName;
 
       if (opts.moveProcessed) {
         if (processedDir === null) {
@@ -170,12 +180,14 @@ export async function executeRenames(
         outcomes.push({ original: row.original, status: "written" });
       }
     } catch (error) {
+      const written = writtenName === null ? {} : { writtenName };
       if (error instanceof WriteCollisionError) {
         outcomes.push({
           original: row.original,
           status: "failed",
           error: error.message,
           writeCollision: true,
+          ...written,
         });
       } else if (error instanceof ProcessedCollisionError) {
         outcomes.push({
@@ -183,9 +195,15 @@ export async function executeRenames(
           status: "failed",
           error: error.message,
           processedCollision: true,
+          ...written,
         });
       } else {
-        outcomes.push({ original: row.original, status: "failed", error: errorMessage(error) });
+        outcomes.push({
+          original: row.original,
+          status: "failed",
+          error: errorMessage(error),
+          ...written,
+        });
       }
     }
   }

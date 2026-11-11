@@ -27,10 +27,10 @@ export function requestPersistentStorage(): void {
     typeof navigator !== "undefined" &&
     typeof navigator.storage?.persist === "function"
   ) {
-    // Latch only a real request: unsupported environments must not consume
-    // the one-shot flag.
-    persistenceRequested = true;
+    // Invoke first, latch after: a synchronous throw must not consume the
+    // one-shot flag before any request was made.
     void navigator.storage.persist().catch(() => {});
+    persistenceRequested = true;
   }
 }
 

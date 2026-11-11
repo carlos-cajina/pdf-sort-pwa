@@ -7,7 +7,12 @@ const MONTH_ABBRS = [
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
 
-const SANITIZE_RE = /[<>:"/\\|?*\s]/g;
+// Applies to manual names only — auto names are parity-bound to the Python
+// CLI byte-for-byte and never pass through this function. Includes ASCII
+// control characters (NUL, C0, DEL): pasted names can carry them, and they
+// survive no filesystem cleanly. No Python counterpart exists to mirror —
+// the Python CLI has no manual names.
+const SANITIZE_RE = /[<>:"/\\|?*\s\x00-\x1f\x7f]/g;
 
 /** Replace filesystem-unsafe characters and whitespace with underscores. */
 export function sanitizeFilename(name: string): string {
