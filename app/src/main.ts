@@ -160,6 +160,15 @@ async function restoreHandles(): Promise<void> {
       inputDir === null ? null : getPermission(inputDir),
       outputDir === null ? null : getPermission(outputDir),
     ]);
+    if (
+      inputDir !== null &&
+      outputDir !== null &&
+      (await inputDir.isSameEntry(outputDir))
+    ) {
+      throw new Error(
+        "The stored input and output folders are the same directory; pick them again"
+      );
+    }
     state = {
       ...state,
       inputFolderName: inputDir?.name ?? null,
@@ -183,6 +192,9 @@ async function restoreHandles(): Promise<void> {
       outputFolderName: null,
       inputPermissionNeeded: false,
       outputPermissionNeeded: false,
+      rows: [],
+      scanned: false,
+      progress: null,
       notice: errorMessage(error),
     };
   } finally {
@@ -200,6 +212,18 @@ async function chooseFolder(kind: "input" | "output"): Promise<void> {
 
   try {
     const handle = await pickFolder();
+    // Refuse the same directory for input and output: renaming into the
+    // scanned folder risks clobbering originals (the write probe catches
+    // direct name matches, but not the self-collision churn).
+    const other = kind === "input" ? outputDir : inputDir;
+    if (other !== null && (await other.isSameEntry(handle))) {
+      // finally reports busy:false and re-renders.
+      state = {
+        ...state,
+        notice: "The input and output folders must be different directories.",
+      };
+      return;
+    }
     await saveHandle(kind, handle);
     const permission = await getPermission(handle);
 
@@ -227,6 +251,10 @@ async function chooseFolder(kind: "input" | "output"): Promise<void> {
       summary: null,
     };
   } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      // The user cancelled the directory picker; that is not an error.
+      return;
+    }
     state = { ...state, notice: errorMessage(error) };
   } finally {
     state = { ...state, busy: false };
@@ -344,6 +372,9 @@ async function rename(): Promise<void> {
     state = { ...state, rows: planned };
     const renameRows = toRenameRows(planned, scannedEntries);
     if (renameRows.length === 0) {
+      // A click that does nothing still deserves its result, and the run
+      // started by clearing the previous summary.
+      state = { ...state, summary: summary(state.rows, []) };
       return;
     }
 
@@ -487,7 +518,17 @@ function recordSuccessfulNames(rows: Row[], outcomes: RowOutcome[]): void {
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === "object" && error !== null) {
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return String(error);
+    }
+  }
+  return String(error);
 }
 
 if (app) {

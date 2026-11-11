@@ -40,12 +40,16 @@ export async function saveHandle(
 ): Promise<void> {
   const db = await openDB();
   try {
-    return await new Promise((resolve, reject) => {
+    // Resolve on the transaction's completion, not the request's success:
+    // onsuccess only means the request was queued; closing the connection
+    // before the transaction commits can abort the write and lose the handle.
+    await new Promise<void>((resolve, reject) => {
       const tx = db.transaction("handles", "readwrite");
       const store = tx.objectStore("handles");
-      const request = store.put(handle, id);
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error ?? new Error("IndexedDB put failed"));
+      store.put(handle, id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error("IndexedDB put failed"));
+      tx.onabort = () => reject(tx.error ?? new Error("IndexedDB put aborted"));
     });
   } finally {
     db.close();
@@ -57,12 +61,17 @@ export async function loadHandle(
 ): Promise<FileSystemDirectoryHandle | null> {
   const db = await openDB();
   try {
-    return await new Promise((resolve, reject) => {
+    return await new Promise<FileSystemDirectoryHandle | null>((resolve, reject) => {
       const tx = db.transaction("handles", "readonly");
       const store = tx.objectStore("handles");
+      let result: FileSystemDirectoryHandle | null = null;
       const request = store.get(id);
-      request.onsuccess = () => resolve((request.result as FileSystemDirectoryHandle | undefined) ?? null);
-      request.onerror = () => reject(request.error ?? new Error("IndexedDB get failed"));
+      request.onsuccess = () => {
+        result = (request.result as FileSystemDirectoryHandle | undefined) ?? null;
+      };
+      tx.oncomplete = () => resolve(result);
+      tx.onerror = () => reject(tx.error ?? new Error("IndexedDB get failed"));
+      tx.onabort = () => reject(tx.error ?? new Error("IndexedDB get aborted"));
     });
   } finally {
     db.close();

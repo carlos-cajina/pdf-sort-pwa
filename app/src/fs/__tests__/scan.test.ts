@@ -26,4 +26,21 @@ describe("scanInputFolder", () => {
     expect(byName["statement.pdf"]).toBe("pdf-1");
     expect(byName["INVOICE.PDF"]).toBe("pdf-2");
   });
+
+  it("sorts by code point, matching Python's str comparison", async () => {
+    // U+FFFD (65533) sorts before U+10000 (65536) in code-point order, but
+    // after it in UTF-16 code-unit order — the pair that makes a naive
+    // string comparison diverge from sorted(iterdir()).
+    const dir = fakeDir([
+      fakeFile("receipt\u{10000}.pdf", "astral"),
+      fakeFile("receipt\uFFFD.pdf", "replacement"),
+    ]);
+
+    const entries = await scanInputFolder(dir);
+
+    expect(entries.map((e) => e.name)).toEqual([
+      "receipt\uFFFD.pdf",
+      "receipt\u{10000}.pdf",
+    ]);
+  });
 });

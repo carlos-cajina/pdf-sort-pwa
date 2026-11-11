@@ -228,12 +228,33 @@ class FakeDB {
   transaction(
     storeNames: string | string[],
     _mode?: IDBTransactionMode
-  ): { objectStore(name: string): FakeObjectStore } {
+  ): {
+    objectStore(name: string): FakeObjectStore;
+    oncomplete: ((event: unknown) => void) | null;
+    onerror: ((event: unknown) => void) | null;
+    onabort: ((event: unknown) => void) | null;
+  } {
     if (this.closed) {
       throw new DOMException("Database connection is closed", "InvalidStateError");
     }
     const names = Array.isArray(storeNames) ? storeNames : [storeNames];
-    return {
+    // Fake transaction lifecycle: requests resolve in one microtask, the
+    // transaction completes in the next, mirroring the real ordering so
+    // oncomplete can never beat a pending request.
+    const tx = {
+      oncomplete: null as ((event: unknown) => void) | null,
+      onerror: null as ((event: unknown) => void) | null,
+      onabort: null as ((event: unknown) => void) | null,
+    };
+    queueMicrotask(() => {
+      queueMicrotask(() => {
+        tx.oncomplete?.({ target: tx });
+      });
+    });
+    // Augment `tx` itself: the caller assigns oncomplete/onabort on the
+    // object it receives, and the completion closure must read that same
+    // object (a spread would copy the null fields by value).
+    return Object.assign(tx, {
       objectStore: (name: string): FakeObjectStore => {
         const data = this.stores.get(name) ?? new Map<IDBValidKey, unknown>();
         // Lazily register a store that was never created, matching IDB behavior well enough for tests.
@@ -243,7 +264,7 @@ class FakeDB {
         }
         return new FakeObjectStore(data);
       },
-    };
+    });
   }
 }
 

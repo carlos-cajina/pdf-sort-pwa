@@ -36,6 +36,17 @@ async function setupWorker(): Promise<void> {
   if (typeof Worker === "undefined" || import.meta.env?.MODE === "test") {
     return;
   }
+  // Per-document destroy() is only safe while pdf.js allocates a fresh
+  // PDFWorker per getDocument — which requires workerPort to stay unset so
+  // only workerSrc is configured (mozilla/pdf.js#16777). Assert the
+  // invariant so a future shared-workerPort optimization fails loudly here
+  // instead of tearing down sibling extractions.
+  const workerPort = pdfjs.GlobalWorkerOptions.workerPort;
+  if (workerPort !== null && workerPort !== undefined) {
+    throw new Error(
+      "pdf.js workerPort is set; per-document destroy() would kill the shared worker"
+    );
+  }
   const { default: workerSrc } = await import(
     "pdfjs-dist/legacy/build/pdf.worker.mjs?worker&url"
   );
@@ -101,6 +112,9 @@ export function itemsToText(items: TextItem[]): string {
 }
 
 function buildLine(lineItems: TextItem[]): string {
+  if (lineItems.length === 0) {
+    return "";
+  }
   const sorted = [...lineItems].sort((a, b) => a.x - b.x);
   let line = sorted[0].str;
   for (let i = 1; i < sorted.length; i++) {

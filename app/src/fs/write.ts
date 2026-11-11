@@ -148,11 +148,22 @@ export async function executeRenames(
         if (processedDir === null) {
           processedDir = await inputDir.getDirectoryHandle("processed", { create: true });
         }
-        // Re-probe right before the archive write: the first probe ran before
-        // the output write, so an archived copy that appeared in that window
-        // must still fail the row instead of being overwritten.
-        await assertNotInProcessed(processedDir, row.original);
-        await writeBytes(processedDir, row.original, bytes);
+        try {
+          // Re-probe right before the archive write: the first probe ran
+          // before the output write, so an archived copy that appeared in
+          // that window must still fail the row instead of being overwritten.
+          await assertNotInProcessed(processedDir, row.original);
+          await writeBytes(processedDir, row.original, bytes);
+        } catch (error) {
+          if (error instanceof ProcessedCollisionError) {
+            // The output exists by now; say so instead of the pre-write
+            // message that claims nothing was written.
+            throw new Error(
+              `${writeName} was written, but processed/ already contains an archived copy of ${row.original}; the original was left in the input folder`
+            );
+          }
+          throw error;
+        }
         await inputDir.removeEntry(row.original);
         outcomes.push({ original: row.original, status: "moved" });
       } else {

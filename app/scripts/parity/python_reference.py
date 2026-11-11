@@ -64,6 +64,13 @@ def main() -> int:
             capture_output=True,
             text=True,
             encoding="utf-8",
+            # The child's own stdout encoding follows the ambient locale; a
+            # C/POSIX locale would make its ensure_ascii=False JSON raise
+            # UnicodeEncodeError before the parent ever decodes it.
+            env={
+                **os.environ,
+                "PYTHONIOENCODING": "utf-8",
+            },
         )
 
     # Exit code 1 only means some files were skipped (incomplete info);
