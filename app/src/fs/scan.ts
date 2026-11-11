@@ -6,22 +6,26 @@ export type ScanEntry = {
 export async function scanInputFolder(
   dir: FileSystemDirectoryHandle
 ): Promise<ScanEntry[]> {
-  const out: ScanEntry[] = [];
+  const fileHandles: FileSystemFileHandle[] = [];
 
   for await (const handle of dir.values()) {
     if (handle.kind !== "file") {
       continue;
     }
 
-    const name = handle.name;
-    if (!/\.pdf$/i.test(name)) {
+    if (!/\.pdf$/i.test(handle.name)) {
       continue;
     }
 
-    const fileHandle = handle as FileSystemFileHandle;
-    const file = await fileHandle.getFile();
-    out.push({ name, file });
+    fileHandles.push(handle as FileSystemFileHandle);
   }
 
-  return out;
+  // Resolve the Files concurrently — each getFile is independent — while
+  // keeping the directory-iteration scan order. A failing getFile still
+  // aborts the scan loudly rather than silently dropping an entry.
+  const files = await Promise.all(fileHandles.map((fileHandle) => fileHandle.getFile()));
+  return fileHandles.map((fileHandle, index) => ({
+    name: fileHandle.name,
+    file: files[index]!,
+  }));
 }

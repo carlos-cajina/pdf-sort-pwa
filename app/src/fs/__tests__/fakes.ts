@@ -209,7 +209,14 @@ class FakeDOMStringList {
 
 class FakeDB {
   readonly objectStoreNames = new FakeDOMStringList();
-  private stores = new Map<string, Map<IDBValidKey, unknown>>();
+  private closed = false;
+
+  constructor(private stores: Map<string, Map<IDBValidKey, unknown>>) {}
+
+  /** Matches the real API; a closed connection refuses new transactions. */
+  close(): void {
+    this.closed = true;
+  }
 
   createObjectStore(name: string): unknown {
     const store = new Map<IDBValidKey, unknown>();
@@ -222,6 +229,9 @@ class FakeDB {
     storeNames: string | string[],
     _mode?: IDBTransactionMode
   ): { objectStore(name: string): FakeObjectStore } {
+    if (this.closed) {
+      throw new DOMException("Database connection is closed", "InvalidStateError");
+    }
     const names = Array.isArray(storeNames) ? storeNames : [storeNames];
     return {
       objectStore: (name: string): FakeObjectStore => {
@@ -281,7 +291,10 @@ function newFakeRequest(): IDBRequest {
 }
 
 export function installFakeIndexedDB(): void {
-  const dbs = new Map<string, FakeDB>();
+  // Storage outlives connections: each open() hands out a fresh FakeDB
+  // connection over the same underlying stores, like real IndexedDB.
+  const storage = new Map<string, Map<IDBValidKey, unknown>>();
+  const objectStoreNames = new FakeDOMStringList();
 
   (globalThis as any).indexedDB = {
     open(name: string, version = 1): IDBOpenDBRequest {
@@ -295,14 +308,12 @@ export function installFakeIndexedDB(): void {
       };
 
       queueMicrotask(() => {
-        let db = dbs.get(name);
         let upgraded = false;
-        if (!db) {
-          db = new FakeDB();
-          dbs.set(name, db);
+        if (!objectStoreNames.contains(name)) {
+          objectStoreNames.add(name);
           upgraded = true;
         }
-
+        const db = new FakeDB(storage);
         request.result = db;
 
         if (upgraded && request.onupgradeneeded) {

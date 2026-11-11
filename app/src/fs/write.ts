@@ -186,8 +186,13 @@ async function writeBytes(
 ): Promise<void> {
   const handle = await dir.getFileHandle(name, { create: true });
   const writable = await handle.createWritable();
-  await writable.write({ type: "write", data: bytes });
-  await writable.close();
+  try {
+    await writable.write({ type: "write", data: bytes });
+  } finally {
+    // Release the stream even on a failed write; an abandoned writable can
+    // keep the file locked until the page unloads.
+    await writable.close().catch(() => {});
+  }
 }
 
 /**

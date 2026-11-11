@@ -37,32 +37,42 @@ export async function saveHandle(
   handle: FileSystemDirectoryHandle
 ): Promise<void> {
   const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction("handles", "readwrite");
-    const store = tx.objectStore("handles");
-    const request = store.put(handle, id);
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error ?? new Error("IndexedDB put failed"));
-  });
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction("handles", "readwrite");
+      const store = tx.objectStore("handles");
+      const request = store.put(handle, id);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error ?? new Error("IndexedDB put failed"));
+    });
+  } finally {
+    db.close();
+  }
 }
 
 export async function loadHandle(
   id: "input" | "output"
 ): Promise<FileSystemDirectoryHandle | null> {
   const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction("handles", "readonly");
-    const store = tx.objectStore("handles");
-    const request = store.get(id);
-    request.onsuccess = () => resolve((request.result as FileSystemDirectoryHandle | undefined) ?? null);
-    request.onerror = () => reject(request.error ?? new Error("IndexedDB get failed"));
-  });
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction("handles", "readonly");
+      const store = tx.objectStore("handles");
+      const request = store.get(id);
+      request.onsuccess = () => resolve((request.result as FileSystemDirectoryHandle | undefined) ?? null);
+      request.onerror = () => reject(request.error ?? new Error("IndexedDB get failed"));
+    });
+  } finally {
+    db.close();
+  }
 }
 
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open("pdf-sort", 1);
     request.onerror = () => reject(request.error ?? new Error("IndexedDB open failed"));
+    request.onblocked = () =>
+      reject(new Error("IndexedDB open blocked by another tab holding pdf-sort"));
     request.onupgradeneeded = () => {
       const db = request.result;
       if (!db.objectStoreNames.contains("handles")) {
