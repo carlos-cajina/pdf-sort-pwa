@@ -158,8 +158,11 @@ export function renderApp(
     dest.textContent = `Destination: ${state.outputFolderName ?? "(output folder)"} — renamed files are written there. (Originals ${state.moveProcessed ? "moved to input/processed/" : "left in the input folder"}.)`;
     results.append(dest);
     const renamed = state.rows
-      .filter((row) => row.finalName !== null && row.status !== "excluded")
-      .map((row) => row.finalName as string);
+      .filter(
+        (row): row is Row & { finalName: string } =>
+          row.finalName !== null && row.status !== "excluded"
+      )
+      .map((row) => row.finalName);
     if (renamed.length > 0) {
       const list = document.createElement("ul");
       for (const name of renamed) {
@@ -303,7 +306,8 @@ function renderRows(
 
     if (row.collision) {
       const collision = document.createElement("span");
-      collision.textContent = " collision — bumped to avoid overwrite";
+      collision.className = "collision";
+      collision.textContent = "collision — bumped to avoid overwrite";
       name.append(collision);
     }
     tableRow.append(name);

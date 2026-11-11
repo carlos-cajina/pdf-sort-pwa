@@ -193,7 +193,11 @@ export async function extractPdfText(data: ArrayBuffer): Promise<string> {
       pageTexts.push(itemsToText(textItems));
     }
   } finally {
-    await loadingTask.destroy().catch(() => {});
+    // A test double or future refactor without destroy() must not throw
+    // inside finally and mask the original extraction error.
+    if (typeof loadingTask.destroy === "function") {
+      await loadingTask.destroy().catch(() => {});
+    }
   }
 
   return pageTexts.join("\n");

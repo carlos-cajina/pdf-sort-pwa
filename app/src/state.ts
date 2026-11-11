@@ -89,6 +89,11 @@ export async function defaultParseFile(entry: ScanEntry): Promise<ParseResult> {
   const data = await entry.file.arrayBuffer();
   const { extractPdfText } = await import("./pdf/text");
   const text = await extractPdfText(data);
+  // Empty text is incomplete by definition; make that explicit instead of
+  // relying on extractInfo happening to yield nulls for empty input.
+  if (text.trim() === "") {
+    return { info: extractInfo(text), proposed: null };
+  }
   const info = extractInfo(text);
   return { info, proposed: buildFilename(info) };
 }
@@ -171,6 +176,8 @@ export function summary(rows: Row[], outcomes: RowOutcome[]): string {
     (outcome) => outcome.status === "written" || outcome.status === "moved"
   ).length;
   const failed = outcomes.filter((outcome) => outcome.status === "failed").length;
-  const skipped = rows.length - outcomes.length;
+  // Skipped means never attempted: excluded or blank rows have no finalName
+  // and executeRenames records no outcome for them.
+  const skipped = rows.filter((row) => row.finalName === null).length;
   return `${renamed} renamed, ${skipped} skipped, ${failed} failed`;
 }

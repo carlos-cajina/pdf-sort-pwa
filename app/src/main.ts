@@ -400,12 +400,26 @@ async function scan(): Promise<void> {
     // scan result could otherwise be used by the next click.
     scannedEntries = [];
     existingOutputNames = new Set<string>();
-    state = {
-      ...state,
-      notice: errorMessage(error),
-      progress: null,
-      scanned: true,
-    };
+    if (error instanceof DOMException && error.name === "NotAllowedError") {
+      // Permission revoked between scans surfaces as NotAllowedError from
+      // folder access, not as a missed prompt: mark both folders so the next
+      // Scan click re-requests (a granted folder resolves without prompting).
+      state = {
+        ...state,
+        inputPermissionNeeded: true,
+        outputPermissionNeeded: true,
+        notice: "Folder permission is needed; press Scan to grant it.",
+        progress: null,
+        scanned: true,
+      };
+    } else {
+      state = {
+        ...state,
+        notice: errorMessage(error),
+        progress: null,
+        scanned: true,
+      };
+    }
   } finally {
     state = { ...state, busy: false, progress: null };
     render();
