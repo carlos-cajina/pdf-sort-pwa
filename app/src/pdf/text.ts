@@ -23,7 +23,12 @@ import type {
 let workerSetup: Promise<void> | null = null;
 
 function ensureWorker(): Promise<void> {
-  workerSetup ??= setupWorker();
+  workerSetup ??= setupWorker().catch((error: unknown) => {
+    // A transient setup failure must not poison the latch for the whole
+    // page: clear it so the next extraction can retry setup.
+    workerSetup = null;
+    throw error;
+  });
   return workerSetup;
 }
 
@@ -115,6 +120,9 @@ function isPdfTextItem(
     typeof item.str === "string" &&
     "transform" in item &&
     Array.isArray(item.transform) &&
+    item.transform.length >= 6 &&
+    typeof item.transform[4] === "number" &&
+    typeof item.transform[5] === "number" &&
     "width" in item &&
     typeof item.width === "number"
   );
@@ -128,8 +136,11 @@ function isPdfTextItem(
 export async function extractPdfText(data: ArrayBuffer): Promise<string> {
   await ensureWorker();
   const mode = import.meta.env?.MODE;
+  // The plain `{ data }` path serves tests and non-browser Node (no Worker,
+  // no document); every other case is the browser and needs the standard
+  // fonts that ship with the app.
   const loadingTask = pdfjs.getDocument(
-    mode === undefined || mode === "test"
+    mode === undefined || mode === "test" || typeof Worker === "undefined"
       ? { data }
       : {
           data,
