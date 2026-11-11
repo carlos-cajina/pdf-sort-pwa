@@ -12,9 +12,11 @@ name: OpenCodeReview PR Review
 #   OCR_LLM_MODEL       = beam-free            (free, unlimited)
 #                         or any Go model: kimi-k2.7-code, glm-5.3-flash, minimax-m3.1-flash, ...
 #
-# The x-opencode-session header and a non-generic User-Agent are sent through
-# llm_extra_headers below — the Go gateway rejects requests without them
-# (HTTP 400 MissingSessionID / 401).
+# The x-opencode-session header is sent through llm_extra_headers below — the
+# Go gateway rejects requests without it (HTTP 400 MissingSessionID). A custom
+# User-Agent must NOT be added here: OCR reserves that header and errors out
+# ("extra header conflicts with a reserved header"); OCR's own User-Agent
+# already satisfies the gateway.
 #
 # Until the secrets exist the job still runs green and skips the review, so a
 # PR opened before the secrets are configured is not marked failed.
@@ -67,9 +69,9 @@ jobs:
           # specific "thinking" key that strict OpenAI-compatible endpoints
           # reject. Add provider-specific fields here if your model needs them.
           llm_extra_body: '{}'
-          # Go gateway requirements: a stable session id per run (prompt-cache
-          # routing) and a client-identifying user agent.
-          llm_extra_headers: 'x-opencode-session=ses_${{ github.run_id }}-${{ github.run_attempt }},User-Agent=open-code-review-action/1.0'
+          # Go gateway requirement: a stable session id per run (prompt-cache
+          # routing). No custom User-Agent — OCR reserves that header.
+          llm_extra_headers: 'x-opencode-session=ses_${{ github.run_id }}-${{ github.run_attempt }}'
           github_token: ${{ secrets.GITHUB_TOKEN }}
           # One sticky summary comment per PR, rewritten on each push.
           sticky_summary: 'true'
