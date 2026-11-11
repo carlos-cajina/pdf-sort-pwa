@@ -54,9 +54,12 @@ Run the cross-engine parity check against a local corpus:
 cd app
 npx tsx scripts/parity/parity.mts
 ```
-
 The harness defaults to `~/Downloads`. It compares Python and TypeScript extraction output file-by-file.
 
 ### Corpus privacy
 
 Never commit receipt PDFs or generated `expected.json` files. Keep the corpus outside the repository.
+
+## Licensing
+
+This is an internal tool; the package is marked `UNLICENSED` and `private`. Bundled third-party font software carries its own license notices, kept alongside the fonts in `public/standard_fonts/` (`LICENSE_FOXIT` for the PDFium standard-font set, `LICENSE_LIBERATION` for the Liberation fonts, GPL v2 with a font embedding exception).
