@@ -37,6 +37,7 @@ export function renderApp(
 
   if (!supported) {
     const banner = document.createElement("p");
+    banner.className = "banner alert";
     banner.setAttribute("role", "alert");
     banner.textContent =
       "Folder picking requires Chrome or Edge. Use a current desktop version to scan and rename PDFs.";
@@ -45,12 +46,14 @@ export function renderApp(
 
   if (state.notice !== null) {
     const notice = document.createElement("p");
+    notice.className = "banner notice";
     notice.setAttribute("role", "alert");
     notice.textContent = state.notice;
     app.append(notice);
   }
 
   const controls = document.createElement("section");
+  controls.className = "controls";
   controls.setAttribute("aria-label", "Folders and actions");
   controls.append(
     folderControl(
@@ -95,6 +98,7 @@ export function renderApp(
       renameCount === 0,
     handlers.onRename
   );
+  rename.classList.add("primary");
   controls.append(rename);
 
   const moveLabel = document.createElement("label");
@@ -112,6 +116,7 @@ export function renderApp(
 
   if (state.progress !== null) {
     const progressLabel = document.createElement("label");
+    progressLabel.className = "progress-row";
     progressLabel.textContent = `Parsing ${state.progress.done} of ${state.progress.total} PDFs `;
     const progress = document.createElement("progress");
     progress.max = state.progress.total;
@@ -143,11 +148,39 @@ export function renderApp(
   }
 
   if (state.summary !== null) {
+    const results = document.createElement("section");
+    results.className = "results";
+    const heading = document.createElement("h2");
+    heading.textContent = "Done";
+    results.append(heading);
+    const dest = document.createElement("p");
+    dest.className = "dest";
+    dest.textContent = `Destination: ${state.outputFolderName ?? "(output folder)"} — renamed files are written there. (Originals ${state.moveProcessed ? "moved to input/processed/" : "left in the input folder"}.)`;
+    results.append(dest);
+    const renamed = state.rows
+      .filter((row) => row.finalName !== null && row.status !== "excluded")
+      .map((row) => row.finalName as string);
+    if (renamed.length > 0) {
+      const list = document.createElement("ul");
+      for (const name of renamed) {
+        const item = document.createElement("li");
+        item.textContent = name;
+        list.append(item);
+      }
+      results.append(list);
+    }
     const summary = document.createElement("p");
-    summary.setAttribute("role", "status");
+    summary.className = "summary";
     summary.textContent = state.summary;
-    app.append(summary);
+    results.append(summary);
+    app.append(results);
   }
+
+  const hint = document.createElement("p");
+  hint.className = "hint";
+  hint.textContent =
+    "Tip: renamed files are written to the output folder you chose; originals stay in the input folder unless “Move originals to processed” is checked.";
+  app.append(hint);
 
   return app;
 }
@@ -160,13 +193,16 @@ function folderControl(
   onPick: () => void
 ): HTMLElement {
   const container = document.createElement("div");
+  container.className = "folder";
   const name = document.createElement("span");
+  name.className = folderName === null ? "folder-name empty" : "folder-name";
   name.textContent = `${label}: ${folderName ?? "no folder selected"}`;
   container.append(name);
 
   if (folderName !== null && permissionNeeded) {
     const permission = document.createElement("span");
-    permission.textContent = ` ${label} permission needed on Scan`;
+    permission.className = "folder-hint";
+    permission.textContent = `${label} permission needed on Scan`;
     container.append(permission);
   }
 
@@ -232,6 +268,7 @@ function renderRows(
 
     const status = document.createElement("td");
     status.textContent = statusGlyph(row);
+    status.className = `status ${row.status}`;
     status.title = row.status;
     tableRow.append(status);
 

@@ -22,6 +22,7 @@ import {
   toggleRow,
   type Row,
 } from "./state";
+import "./styles.css";
 import { flushFocusedManualName } from "./ui/manual-name";
 import {
   renderApp,
