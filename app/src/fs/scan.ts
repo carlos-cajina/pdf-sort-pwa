@@ -13,7 +13,7 @@ export async function scanInputFolder(
       continue;
     }
 
-    if (!/\.pdf$/i.test(handle.name)) {
+    if (!isPdfName(handle.name)) {
       continue;
     }
 
@@ -31,10 +31,23 @@ export async function scanInputFolder(
   // keeping the sorted scan order. A failing getFile still aborts the scan
   // loudly rather than silently dropping an entry.
   const files = await Promise.all(fileHandles.map((fileHandle) => fileHandle.getFile()));
-  return fileHandles.map((fileHandle, index) => ({
-    name: fileHandle.name,
-    file: files[index]!,
-  }));
+  return fileHandles.map((fileHandle, index) => {
+    const file = files[index];
+    if (file === undefined) {
+      throw new Error(`getFile resolved out of order for ${fileHandle.name}`);
+    }
+    return { name: fileHandle.name, file };
+  });
+}
+
+/**
+ * Match the Python CLI's `p.suffix.lower() == ".pdf"`: a name ending in
+ * ".pdf" case-insensitively, with a non-empty stem. A bare dotfile like
+ * ".pdf" has no suffix in pathlib and is skipped, unlike a case-insensitive
+ * regex which would include it.
+ */
+function isPdfName(name: string): boolean {
+  return name.length > 4 && name.toLowerCase().endsWith(".pdf");
 }
 
 /** Code-point ordering, byte-identical to Python's default str comparison. */

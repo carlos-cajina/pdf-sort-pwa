@@ -330,8 +330,12 @@ function statusGlyph(row: Row): string {
     case "parsing":
       return "…";
     default: {
+      // Compile-time exhaustiveness: a new RowStatus fails this assignment.
       const exhaustive: never = row.status;
-      throw new Error(`Unknown row status: ${String(exhaustive)}`);
+      // Runtime fallback: an unexpected status degrades to "?" instead of
+      // crashing the whole render.
+      void exhaustive;
+      return "?";
     }
   }
 }

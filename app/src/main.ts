@@ -205,13 +205,30 @@ async function restoreHandlesInner(): Promise<void> {
   ]);
 
   if (restoredInput !== null && restoredOutput !== null) {
-    // Fail closed: if the comparison itself fails, treat the pair as a
-    // conflict and require both to be picked again.
-    let same = true;
+    let same: boolean;
     try {
       same = await restoredInput.isSameEntry(restoredOutput);
     } catch {
-      same = true;
+      // A transient comparison failure is not evidence of a conflict: keep
+      // the handles (they fail loudly on use if actually broken) and ask the
+      // user to re-pick rather than discarding two valid folders.
+      inputDir = restoredInput;
+      outputDir = restoredOutput;
+      scannedEntries = [];
+      existingOutputNames = new Set<string>();
+      state = {
+        ...state,
+        inputFolderName: restoredInput.name,
+        outputFolderName: restoredOutput.name,
+        inputPermissionNeeded: inputPermission !== "granted",
+        outputPermissionNeeded: outputPermission !== "granted",
+        rows: [],
+        scanned: false,
+        progress: null,
+        notice:
+          "Could not verify that the saved input and output folders are different; pick them again to be safe.",
+      };
+      return;
     }
     if (same) {
       inputDir = null;
@@ -530,9 +547,11 @@ async function retryWriteCollisions(
   const freshNames = await readExistingNames(output);
   // Union, not replace: the names recorded from the first run were just
   // written, and a stale directory read must never let a replanned collision
-  // pick an already-occupied output name.
-  existingOutputNames = new Set([...existingOutputNames, ...freshNames]);
-  const replanned = computePlan(collisionRows, freshNames);
+  // pick an already-occupied output name. Plan against the union too —
+  // bumping must dodge every occupied name, not just the freshly-read ones.
+  const mergedNames = new Set([...existingOutputNames, ...freshNames]);
+  existingOutputNames = mergedNames;
+  const replanned = computePlan(collisionRows, mergedNames);
   const replannedByOriginal = new Map(
     replanned.map((row) => [row.original, row])
   );
@@ -606,7 +625,8 @@ function errorMessage(error: unknown): string {
   }
   if (typeof error === "object" && error !== null) {
     try {
-      return JSON.stringify(error);
+      // Truncate: a large serialized object is unreadable in a one-line notice.
+      return JSON.stringify(error).slice(0, 200);
     } catch {
       return String(error);
     }

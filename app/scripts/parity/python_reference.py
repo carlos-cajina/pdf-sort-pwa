@@ -56,30 +56,41 @@ def main() -> int:
     # The CLI copies PDFs into --output-dir even in dry-run mode, so point it
     # at a throwaway directory instead of the repo root (its default).
     with tempfile.TemporaryDirectory(prefix="pdf-sort-parity-") as tmp:
-        result = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "pdf_sort",
-                "--input-dir",
-                str(corpus),
-                "--output-dir",
-                tmp,
-                "--format",
-                "json",
-            ],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            # The child's own stdout encoding follows the ambient locale; a
-            # C/POSIX locale would make its ensure_ascii=False JSON raise
-            # UnicodeEncodeError before the parent ever decodes it.
-            env={
-                **os.environ,
-                "PYTHONIOENCODING": "utf-8",
-            },
-        )
+        try:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "pdf_sort",
+                    "--input-dir",
+                    str(corpus),
+                    "--output-dir",
+                    tmp,
+                    "--format",
+                    "json",
+                ],
+                cwd=REPO_ROOT,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                # A hung or blocked pdf_sort must fail the helper instead of
+                # stalling the gate indefinitely.
+                timeout=300,
+                # The child's own stdout encoding follows the ambient locale; a
+                # C/POSIX locale would make its ensure_ascii=False JSON raise
+                # UnicodeEncodeError before the parent ever decodes it.
+                env={
+                    **os.environ,
+                    "PYTHONIOENCODING": "utf-8",
+                },
+            )
+        except subprocess.TimeoutExpired:
+            print(
+                "error: pdf_sort timed out after 300s; is the corpus on a "
+                "stuck mount?",
+                file=sys.stderr,
+            )
+            return 2
 
     # Exit code 1 only means some files were skipped (incomplete info);
     # any other code, or unparseable output, is a real failure.

@@ -166,9 +166,11 @@ export async function executeRenames(
           await writeBytes(processedDir, row.original, bytes);
         } catch (error) {
           if (error instanceof ProcessedCollisionError) {
-            // The output exists by now; say so instead of the pre-write
-            // message that claims nothing was written.
-            throw new Error(
+            // Re-throw as the same error type so the outer catch still marks
+            // the row processedCollision, with the message corrected: the
+            // output exists by now, so the pre-write wording would lie.
+            throw new ProcessedCollisionError(
+              row.original,
               `${writeName} was written, but processed/ already contains an archived copy of ${row.original}; the original was left in the input folder`
             );
           }
@@ -269,9 +271,10 @@ class WriteCollisionError extends Error {
 }
 
 class ProcessedCollisionError extends Error {
-  constructor(name: string) {
+  constructor(name: string, message?: string) {
     super(
-      `${name} already exists in processed/; clear or rename that archived copy before moving this original (nothing was written)`
+      message ??
+        `${name} already exists in processed/; clear or rename that archived copy before moving this original (nothing was written)`
     );
   }
 }

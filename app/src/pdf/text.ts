@@ -85,6 +85,13 @@ export function itemsToText(items: TextItem[]): string {
     .filter((item) => item.str.trim() !== "")
     .map((item) => ({
       ...item,
+      // Coerce non-finite heights here too: itemsToText is exported and
+      // called directly (tests, future callers), so both entry points must
+      // agree that a NaN height degrades to a raw-y top.
+      height:
+        typeof item.height === "number" && Number.isFinite(item.height)
+          ? item.height
+          : undefined,
       top: item.y + ASCENT * (item.height ?? 0),
     }))
     .sort((a, b) => (a.top === b.top ? a.x - b.x : b.top - a.top));
@@ -139,9 +146,12 @@ function isPdfTextItem(
     Array.isArray(item.transform) &&
     item.transform.length >= 6 &&
     typeof item.transform[4] === "number" &&
+    Number.isFinite(item.transform[4]) &&
     typeof item.transform[5] === "number" &&
+    Number.isFinite(item.transform[5]) &&
     "width" in item &&
-    typeof item.width === "number"
+    typeof item.width === "number" &&
+    Number.isFinite(item.width)
   );
 }
 
@@ -155,9 +165,13 @@ export async function extractPdfText(data: ArrayBuffer): Promise<string> {
   const mode = import.meta.env?.MODE;
   // The plain `{ data }` path serves tests and non-browser Node (no Worker,
   // no document); every other case is the browser and needs the standard
-  // fonts that ship with the app.
+  // fonts that ship with the app. Document availability is checked directly:
+  // a Node runtime with a Worker global or a non-test mode must not touch it.
   const loadingTask = pdfjs.getDocument(
-    mode === undefined || mode === "test" || typeof Worker === "undefined"
+    mode === undefined ||
+      mode === "test" ||
+      typeof Worker === "undefined" ||
+      typeof document === "undefined"
       ? { data }
       : {
           data,
@@ -193,10 +207,12 @@ export async function extractPdfText(data: ArrayBuffer): Promise<string> {
       pageTexts.push(itemsToText(textItems));
     }
   } finally {
-    // A test double or future refactor without destroy() must not throw
-    // inside finally and mask the original extraction error.
-    if (typeof loadingTask.destroy === "function") {
-      await loadingTask.destroy().catch(() => {});
+    // A missing, synchronously-throwing, or rejecting destroy() must never
+    // escape finally and mask the original extraction error.
+    try {
+      await loadingTask.destroy();
+    } catch {
+      // Swallow: the extraction result (or its error) is what matters.
     }
   }
 
