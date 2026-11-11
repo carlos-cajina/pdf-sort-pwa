@@ -247,7 +247,7 @@ function renderRows(
     if (row.status === "incomplete") {
       const input = document.createElement("input");
       input.type = "text";
-      input.value = row.manualName;
+      input.value = pendingManualEdit(row.original) ?? row.manualName;
       input.disabled = busy;
       input.placeholder = "Enter filename.pdf";
       input.setAttribute("aria-label", `New name for ${row.original}`);
@@ -288,5 +288,25 @@ function statusGlyph(row: Row): string {
       return "—";
     case "parsing":
       return "…";
+    default: {
+      const exhaustive: never = row.status;
+      throw new Error(`Unknown row status: ${String(exhaustive)}`);
+    }
   }
+}
+
+/**
+ * An in-progress (uncommitted) manual-name edit for `original`, if the user is
+ * typing it right now. Commits happen on change/blur, so a re-render in
+ * between must not wipe what has been typed so far.
+ */
+function pendingManualEdit(original: string): string | undefined {
+  const active = document.activeElement;
+  if (
+    active instanceof HTMLInputElement &&
+    active.dataset.manualNameFor === original
+  ) {
+    return active.value;
+  }
+  return undefined;
 }

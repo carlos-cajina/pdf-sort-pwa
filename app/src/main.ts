@@ -169,7 +169,19 @@ async function restoreHandles(): Promise<void> {
         outputDir !== null && outputPermission !== "granted",
     };
   } catch (error) {
-    state = { ...state, notice: errorMessage(error) };
+    // Never leave module handles populated while the UI shows nothing: a
+    // failed restore must leave both handles and the visible state null so
+    // scan/rename cannot run against handles the user cannot see.
+    inputDir = null;
+    outputDir = null;
+    state = {
+      ...state,
+      inputFolderName: null,
+      outputFolderName: null,
+      inputPermissionNeeded: false,
+      outputPermissionNeeded: false,
+      notice: errorMessage(error),
+    };
   } finally {
     render();
   }
@@ -464,9 +476,9 @@ function recordSuccessfulNames(rows: Row[], outcomes: RowOutcome[]): void {
     if (outcome.status !== "written" && outcome.status !== "moved") {
       continue;
     }
-    const finalName = rowsByOriginal.get(outcome.original)?.finalName;
-    if (finalName != null) {
-      existingOutputNames.add(finalName);
+    const row = rowsByOriginal.get(outcome.original);
+    if (row !== undefined && row.finalName !== null) {
+      existingOutputNames.add(row.finalName);
     }
   }
 }

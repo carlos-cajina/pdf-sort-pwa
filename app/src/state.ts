@@ -76,6 +76,11 @@ export async function parseAll(
       worker()
     )
   );
+  // The progress contract runs up to (total, total); an empty scan still
+  // reports its terminal (0, 0).
+  if (entries.length === 0) {
+    onProgress(0, 0);
+  }
   return rows;
 }
 
@@ -105,12 +110,12 @@ export function toggleRow(rows: Row[], original: string): Row[] {
       return { ...row, status: "excluded" };
     }
 
-    const status: RowStatus =
-      row.error !== undefined
-        ? "error"
-        : row.proposed === null
-          ? "incomplete"
-          : "ready";
+    let status: RowStatus = "ready";
+    if (row.error !== undefined) {
+      status = "error";
+    } else if (row.proposed === null) {
+      status = "incomplete";
+    }
     return { ...row, status };
   });
 }
@@ -118,23 +123,34 @@ export function toggleRow(rows: Row[], original: string): Row[] {
 /** Plan sanitized manual names and auto names together, preserving each row's proposal. */
 export function computePlan(rows: Row[], existingNames: Set<string>): Row[] {
   const planned = planRenames(
-    rows.map((row) => ({
-      ...row,
-      proposed:
-        row.status === "excluded"
-          ? null
-          : row.manualName.trim() !== ""
-            ? ensurePdfExtension(sanitizeFilename(row.manualName))
-            : row.proposed,
-    })),
+    rows.map((row) => ({ ...row, proposed: resolveProposed(row) })),
     existingNames
   );
 
-  return planned.map((plannedRow, index) => ({
-    ...rows[index],
-    finalName: plannedRow.finalName,
-    collision: plannedRow.collision,
-  }));
+  // Merge back keyed by the row's original name, not by index, so the plan
+  // can never attach a finalName to the wrong row.
+  const plannedByOriginal = new Map(
+    planned.map((plannedRow) => [plannedRow.original, plannedRow])
+  );
+  return rows.map((row) => {
+    const plannedRow = plannedByOriginal.get(row.original);
+    return {
+      ...row,
+      finalName: plannedRow?.finalName ?? null,
+      collision: plannedRow?.collision ?? false,
+    };
+  });
+}
+
+/** A row's proposal going into the plan: manual name wins, excluded rows propose nothing. */
+function resolveProposed(row: Row): string | null {
+  if (row.status === "excluded") {
+    return null;
+  }
+  if (row.manualName.trim() !== "") {
+    return ensurePdfExtension(sanitizeFilename(row.manualName));
+  }
+  return row.proposed;
 }
 
 /** Manual names are filenames: add the extension the plan/renamer expects. */

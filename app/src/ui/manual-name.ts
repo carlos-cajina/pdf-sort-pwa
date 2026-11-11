@@ -10,10 +10,14 @@ export function flushFocusedManualName(
     return false;
   }
   const original = input.dataset.manualNameFor;
-  const row = rows.find((candidate) => candidate.original === original);
-  if (original === undefined || row === undefined || row.manualName === input.value) {
+  if (original === undefined) {
     return false;
   }
-  commit(original, input.value);
+  const row = rows.find((candidate) => candidate.original === original);
+  if (row === undefined || row.manualName === input.value) {
+    return false;
+  }
+  // Store the trimmed value: planning and inclusion both use manualName.trim().
+  commit(original, input.value.trim());
   return true;
 }
