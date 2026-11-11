@@ -75,9 +75,12 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           # One sticky summary comment per PR, rewritten on each push.
           sticky_summary: 'true'
-          # Always review the full merge-base range; the checkpoint machinery
-          # is left off until the review is known to be stable.
-          incremental: 'false'
+          # Review only content new since the last checkpoint once the
+          # initial full review is done — full re-reviews re-report every
+          # deliberately-kept finding on each push.
+          incremental: 'true'
           checkpoint_range: 'false'
+          # Start in report mode: log what would be resolved, change nothing.
+          resolve_outdated: 'report'
           upload_artifacts: 'true'
           review_task_timeout: '20'
