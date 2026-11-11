@@ -1,0 +1,60 @@
+{
+  "exclude": [
+    "**/*.test.ts",
+    "app/scripts/parity/expected.json",
+    "app/dist/**",
+    "app/node_modules/**"
+  ],
+  "rules": [
+    {
+      "path": "app/src/engine/**",
+      "rule": "This directory is a FROZEN, byte-faithful port of the Python extraction engine (pdf_sort/extract/). Its parsers are the parity contract: the TypeScript engine must produce identical proposed filenames to the Python CLI on the real corpus (currently 62/62). Do NOT change a parser here to make a test or a new corpus file pass. If a change is genuinely required, it must be mirrored in pdf_sort/extract/patterns.py (and the other mirrored modules) in the same change, and the parity harness (app/scripts/parity/parity.mts) plus both test suites must pass. Flag any change to app/src/engine/ that has no corresponding Python-side change.",
+      "merge_system_rule": true
+    },
+    {
+      "path": "app/src/pdf/text.ts",
+      "rule": "This file reconstructs PDF text from pdf.js items. Its line-clustering behaviour (the ASCENT constant, glyph-top clustering, line-break chaining) is deliberately TUNED to match pdfplumber's clustering so extraction stays at parity with the Python CLI; the constant is corpus-calibrated and there is no single value exact across fonts (measured ascents span 0.61-1.00). Treat changes to the clustering algorithm, the ASCENT constant, or the worker/port lifecycle as parity-critical: they must keep the parity gate at 62/62 and must not change extraction behaviour for the Node/test path. Also verify that the pdf.js worker lifecycle is safe under the 4-way concurrent parseAll: no worker is shared across documents in a way that one document's destroy() tears down another document's worker, and the init is latched as a promise so concurrent callers cannot proceed before setup completes.",
+      "merge_system_rule": true
+    },
+    {
+      "path": "app/src/fs/write.ts",
+      "rule": "This file performs every write to the user's disk. The spec's write semantics are binding and must not be weakened:\n1. Exactly one write under the final name (no copy-then-rename of the output).\n2. NEVER a silent overwrite. A name that already exists in the output folder is bumped with a _2/_3 suffix at plan time; a name that appears between planning and writing is detected by a write-time existence probe and fails the row LOUDLY with nothing written. The processed/ archive copy is probed the same way.\n3. Only manual (typed) names are sanitised; auto names come from the engine and are already safe.\n4. Excluded rows (finalName === null) are never written and never moved.\n5. The original moves to input/processed/ ONLY after the output write succeeded; a failed write leaves the original in place and marks the row failed.\n6. One row's failure never aborts the batch.\nFlag any change that lets a write clobber an existing file, moves an original before its output write, or sanitises an auto name.",
+      "merge_system_rule": true
+    },
+    {
+      "path": "app/src/fs/handles.ts",
+      "rule": "Folder handles live in vanilla IndexedDB. The gesture contract is binding: requestPermission() and pickFolder() may ONLY be called from a user gesture (Chromium requires user activation) - never on page load. getPermission()/queryPermission() are the non-gesture path and are what the load-time restore uses. Permission requests must start synchronously in the gesture handler, before the first await, or Chromium rejects them. navigator.storage.persist() may only be requested from a gesture and must be latched so it fires at most once per page load.",
+      "merge_system_rule": true
+    },
+    {
+      "path": "app/src/state.ts",
+      "rule": "Pure state model: every exported function except parseAll's loop must stay pure (no IO, no input mutation). parseAll must bound concurrency at 4, isolate per-file failures (a rejected parse yields an 'error' row and the run continues), map empty extracted text to 'incomplete', and report progress up to (total, total). computePlan must run through Task 10's planRenames and must null the proposed name for excluded rows so excluded rows never receive a finalName.",
+      "merge_system_rule": true
+    },
+    {
+      "path": "app/src/ui/**",
+      "rule": "render.ts is a dumb renderer: it may read the Row fields it is given but must not plan, import the write pipeline, or hold state. All DOM construction must use textContent/createElement - never innerHTML with user-controlled content (filenames are user data; an innerHTML sink here is an XSS bug). main.ts owns the event wiring and the gesture ordering.",
+      "merge_system_rule": true
+    },
+    {
+      "path": "app/scripts/parity/**",
+      "rule": "The parity harness reads the user's real receipt corpus (PII: RFCs, CLABEs, account numbers, amounts) from a local directory. Corpus data must NEVER be committed: app/scripts/parity/expected.json is gitignored, no receipt PDF may be added, and no corpus-derived literal (a real filename, an amount, an account number) may be hardcoded in a committed file. Tests may use synthetic fixtures that only look like receipts.",
+      "merge_system_rule": true
+    },
+    {
+      "path": "pdf_sort/**",
+      "rule": "The Python package is the reference implementation and is never modified as part of the TypeScript port. A change here invalidates the parity contract and requires the mirrored change in app/src/engine/ plus a parity run. Flag any modification.",
+      "merge_system_rule": true
+    },
+    {
+      "path": "tests/**",
+      "rule": "The Python test suite must stay at 177 passing tests and is never modified to accommodate the TypeScript port. Flag any change.",
+      "merge_system_rule": true
+    },
+    {
+      "path": "**/*",
+      "rule": "Project-wide constraints for this repository:\n- Corpus privacy: no receipt PDF, no expected.json, no corpus-derived literal may ever be committed.\n- The Python package (pdf_sort/, tests/) stays untouched; pytest must remain at 177 passing.\n- Extraction parity with the Python CLI is the contract: the ported parsers in app/src/engine/ are frozen; only the PDF text-reconstruction layer may be tuned, and only to keep parity.\n- TypeScript strict mode; npm test and npm run build must pass at every commit.\n- The app is a pure static PWA: no server, no runtime network calls, no telemetry; it runs offline after install and is served from the fixed port 4173 (a different port is a different install with different remembered folders).",
+      "merge_system_rule": true
+    }
+  ]
+}

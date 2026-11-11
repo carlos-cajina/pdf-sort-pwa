@@ -1,0 +1,72 @@
+name: OpenCodeReview PR Review
+
+# AI-powered PR review using Alibaba's OpenCodeReview composite action.
+# Docs: https://github.com/alibaba/open-code-review
+#
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#   OCR_LLM_URL           - LLM API endpoint (e.g. https://api.openai.com/v1/chat/completions)
+#   OCR_LLM_AUTH_TOKEN    - Authentication token for that endpoint
+#   OCR_LLM_MODEL         - Model name
+#   OCR_LLM_USE_ANTHROPIC - optional; 'true' for the Anthropic protocol, defaults to
+#                           'false' (OpenAI-compatible) when unset
+#
+# Until those secrets exist the job still runs green and skips the review, so a
+# PR opened before the secrets are configured is not marked failed.
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+on:
+  # pull_request_target (not pull_request) so the LLM secrets are available for
+  # PRs opened from forks. This is safe here: the action checks out the trusted
+  # base branch and fetches the PR head's blobs without executing any code
+  # from the PR.
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  code-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      OCR_LLM_URL: ${{ secrets.OCR_LLM_URL }}
+      OCR_LLM_TOKEN: ${{ secrets.OCR_LLM_AUTH_TOKEN }}
+      OCR_LLM_MODEL: ${{ secrets.OCR_LLM_MODEL }}
+    steps:
+      - name: Check LLM configuration
+        id: llm
+        shell: bash
+        run: |
+          if [ -z "$OCR_LLM_URL" ] || [ -z "$OCR_LLM_TOKEN" ] || [ -z "$OCR_LLM_MODEL" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::LLM secrets are not configured (OCR_LLM_URL / OCR_LLM_AUTH_TOKEN / OCR_LLM_MODEL). Skipping the AI review; see app/README.md."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run OpenCodeReview
+        if: steps.llm.outputs.configured == 'true'
+        uses: alibaba/open-code-review@v1.13.7
+        with:
+          llm_url: ${{ secrets.OCR_LLM_URL }}
+          llm_auth_token: ${{ secrets.OCR_LLM_AUTH_TOKEN }}
+          llm_model: ${{ secrets.OCR_LLM_MODEL }}
+          llm_use_anthropic: ${{ secrets.OCR_LLM_USE_ANTHROPIC || 'false' }}
+          # Neutral request body: the action's default injects a provider-
+          # specific "thinking" key that strict OpenAI-compatible endpoints
+          # reject. Add provider-specific fields here if your model needs them.
+          llm_extra_body: '{}'
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          # One sticky summary comment per PR, rewritten on each push.
+          sticky_summary: 'true'
+          # Always review the full merge-base range; the checkpoint machinery
+          # is left off until the review is known to be stable.
+          incremental: 'false'
+          checkpoint_range: 'false'
+          upload_artifacts: 'true'
+          review_task_timeout: '20'
