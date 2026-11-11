@@ -148,7 +148,14 @@ function resolveProposed(row: Row): string | null {
     return null;
   }
   if (row.manualName.trim() !== "") {
-    return ensurePdfExtension(sanitizeFilename(row.manualName));
+    const sanitized = sanitizeFilename(row.manualName.trim());
+    // A name made only of unsafe characters or dots would collapse into a
+    // degenerate target ("" → ".pdf", "." → ".pdf", ".." → "..pdf"); treat
+    // it as no proposal so the row stays incomplete instead of writing one.
+    if (sanitized === "" || sanitized === "." || sanitized === "..") {
+      return null;
+    }
+    return ensurePdfExtension(sanitized);
   }
   return row.proposed;
 }

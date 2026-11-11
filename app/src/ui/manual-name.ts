@@ -14,7 +14,9 @@ export function flushFocusedManualName(
     return false;
   }
   const row = rows.find((candidate) => candidate.original === original);
-  if (row === undefined || row.manualName === input.value) {
+  // Compare against the canonical (trimmed) value that gets committed, so a
+  // whitespace-only difference is not reported as a change.
+  if (row === undefined || row.manualName === input.value.trim()) {
     return false;
   }
   // Store the trimmed value: planning and inclusion both use manualName.trim().

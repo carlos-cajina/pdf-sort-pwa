@@ -148,6 +148,10 @@ export async function executeRenames(
         if (processedDir === null) {
           processedDir = await inputDir.getDirectoryHandle("processed", { create: true });
         }
+        // Re-probe right before the archive write: the first probe ran before
+        // the output write, so an archived copy that appeared in that window
+        // must still fail the row instead of being overwritten.
+        await assertNotInProcessed(processedDir, row.original);
         await writeBytes(processedDir, row.original, bytes);
         await inputDir.removeEntry(row.original);
         outcomes.push({ original: row.original, status: "moved" });
@@ -188,11 +192,16 @@ async function writeBytes(
   const writable = await handle.createWritable();
   try {
     await writable.write({ type: "write", data: bytes });
-  } finally {
-    // Release the stream even on a failed write; an abandoned writable can
-    // keep the file locked until the page unloads.
+  } catch (error) {
+    // Release the stream on a failed write; an abandoned writable can keep
+    // the file locked until the page unloads. The write error is the one
+    // that matters for the row.
     await writable.close().catch(() => {});
+    throw error;
   }
+  // A close failure means the bytes may not have been flushed; let it fail
+  // the row instead of reporting a write that did not commit.
+  await writable.close();
 }
 
 /**
@@ -201,6 +210,11 @@ async function writeBytes(
  * raise NotFoundError before we create the file. If the probe finds an entry,
  * the write is rejected as a loud per-row failure instead of silently
  * overwriting.
+ *
+ * Residual race: the File System Access API has no atomic exclusive-create,
+ * so a file that appears in the microscopic gap between this probe and the
+ * create would still be overwritten. The window is best-effort narrowed here
+ * and by re-reading the folder immediately before the batch.
  */
 async function writeNewFile(
   dir: FileSystemDirectoryHandle,

@@ -59,6 +59,16 @@ describe("flushFocusedManualName", () => {
     expect(rows[0]?.manualName).toBe("typed.pdf");
   });
 
+  it("does not commit a whitespace-only difference", () => {
+    let rows = [makeIncompleteRow()];
+    rows = setManualName(rows, "original.pdf", "typed.pdf");
+    focusDirtyInput("original.pdf", "  typed.pdf  ");
+    const commit = vi.fn();
+
+    expect(flushFocusedManualName(rows, commit)).toBe(false);
+    expect(commit).not.toHaveBeenCalled();
+  });
+
   it("lets a Rename-type handler plan the typed name on the first invocation", () => {
     let rows = [makeIncompleteRow()];
     const existingNames = new Set<string>();

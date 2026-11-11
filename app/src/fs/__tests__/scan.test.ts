@@ -16,6 +16,10 @@ describe("scanInputFolder", () => {
 
     expect(names).toEqual(["INVOICE.PDF", "statement.pdf"]);
 
+    // Sorted scan order (matching Python's sorted(iterdir())) must not depend
+    // on directory iteration order.
+    expect(entries.map((e) => e.name)).toEqual(["INVOICE.PDF", "statement.pdf"]);
+
     const byName = Object.fromEntries(
       await Promise.all(entries.map(async (e) => [e.name, await e.file.text()]))
     );

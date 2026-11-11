@@ -94,11 +94,12 @@ const handlers: RenderHandlers = {
 };
 
 function commitManualName(original: string, name: string): boolean {
+  const trimmed = name.trim();
   const row = state.rows.find((candidate) => candidate.original === original);
-  if (row === undefined || row.manualName === name) {
+  if (row === undefined || row.manualName === trimmed) {
     return false;
   }
-  const edited = setManualName(state.rows, original, name);
+  const edited = setManualName(state.rows, original, trimmed);
   state = {
     ...state,
     rows: computePlan(edited, existingOutputNames),
@@ -174,6 +175,8 @@ async function restoreHandles(): Promise<void> {
     // scan/rename cannot run against handles the user cannot see.
     inputDir = null;
     outputDir = null;
+    scannedEntries = [];
+    existingOutputNames = new Set<string>();
     state = {
       ...state,
       inputFolderName: null,

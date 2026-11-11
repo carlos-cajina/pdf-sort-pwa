@@ -255,6 +255,21 @@ describe("row updates and planning", () => {
     expect(suffixed[0].finalName).toBe("RECEIPT.PDF");
   });
 
+  it("treats a manual name that sanitizes to a dot component as no proposal", () => {
+    const rows = [
+      makeRow("dot.pdf", { status: "incomplete", proposed: null }),
+      makeRow("dots.pdf", { status: "incomplete", proposed: null }),
+    ];
+    const planned = computePlan(
+      setManualName(setManualName(rows, "dot.pdf", "."), "dots.pdf", ".."),
+      new Set()
+    );
+
+    // "." → ".pdf" and ".." → "..pdf" would be degenerate/hidden targets.
+    expect(planned[0].finalName).toBeNull();
+    expect(planned[1].finalName).toBeNull();
+  });
+
   it("excludes an auto row from the plan without mutating the input", () => {
     const rows = [makeRow("auto.pdf", { proposed: "auto.pdf" })];
 

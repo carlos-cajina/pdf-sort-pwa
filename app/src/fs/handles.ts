@@ -23,11 +23,13 @@ export function requestPersistentStorage(): void {
   if (persistenceRequested) {
     return;
   }
-  persistenceRequested = true;
   if (
     typeof navigator !== "undefined" &&
     typeof navigator.storage?.persist === "function"
   ) {
+    // Latch only a real request: unsupported environments must not consume
+    // the one-shot flag.
+    persistenceRequested = true;
     void navigator.storage.persist().catch(() => {});
   }
 }
