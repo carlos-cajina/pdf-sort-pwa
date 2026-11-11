@@ -177,7 +177,11 @@ export function summary(rows: Row[], outcomes: RowOutcome[]): string {
   ).length;
   const failed = outcomes.filter((outcome) => outcome.status === "failed").length;
   // Skipped means never attempted: excluded or blank rows have no finalName
-  // and executeRenames records no outcome for them.
-  const skipped = rows.filter((row) => row.finalName === null).length;
+  // and executeRenames records no outcome for them. Parse-error rows also
+  // have no finalName, but they failed rather than being skipped — they are
+  // visible in the table and excluded from the skipped count.
+  const skipped = rows.filter(
+    (row) => row.finalName === null && row.status !== "error"
+  ).length;
   return `${renamed} renamed, ${skipped} skipped, ${failed} failed`;
 }

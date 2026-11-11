@@ -83,17 +83,16 @@ type LineItem = TextItem & { top: number };
 export function itemsToText(items: TextItem[]): string {
   const sorted: LineItem[] = items
     .filter((item) => item.str.trim() !== "")
-    .map((item) => ({
-      ...item,
-      // Coerce non-finite heights here too: itemsToText is exported and
-      // called directly (tests, future callers), so both entry points must
-      // agree that a NaN height degrades to a raw-y top.
-      height:
+    .map((item) => {
+      // The single canonical coercion site: a non-finite height degrades to
+      // undefined so the ASCENT term falls back to 0 (raw-y top). NaN ?? 0
+      // is NaN — the coerced value, not the original, must feed top.
+      const height =
         typeof item.height === "number" && Number.isFinite(item.height)
           ? item.height
-          : undefined,
-      top: item.y + ASCENT * (item.height ?? 0),
-    }))
+          : undefined;
+      return { ...item, height, top: item.y + ASCENT * (height ?? 0) };
+    })
     .sort((a, b) => (a.top === b.top ? a.x - b.x : b.top - a.top));
 
   const lines: string[] = [];
@@ -190,19 +189,15 @@ export async function extractPdfText(data: ArrayBuffer): Promise<string> {
       const content = await page.getTextContent();
       const textItems: TextItem[] = content.items
         .filter(isPdfTextItem)
-        // itemsToText skips empty and whitespace-only strings itself; a
-        // second filter here would be a weaker duplicate that can drift.
+        // itemsToText skips empty and whitespace-only strings itself and is
+        // the single canonical site for height coercion — no duplicate
+        // filtering or coercion here to drift.
         .map((item) => ({
           str: item.str,
           x: item.transform[4],
           y: item.transform[5],
           width: item.width,
-          // Coerce non-finite heights: a NaN height would produce NaN tops
-          // and silently corrupt the line clustering.
-          height:
-            typeof item.height === "number" && Number.isFinite(item.height)
-              ? item.height
-              : undefined,
+          height: item.height,
         }));
       pageTexts.push(itemsToText(textItems));
     }

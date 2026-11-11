@@ -27,10 +27,16 @@ export function requestPersistentStorage(): void {
     typeof navigator !== "undefined" &&
     typeof navigator.storage?.persist === "function"
   ) {
-    // Invoke first, latch after: a synchronous throw must not consume the
-    // one-shot flag before any request was made.
-    void navigator.storage.persist().catch(() => {});
-    persistenceRequested = true;
+    try {
+      // Invoke first, latch after: a synchronous throw must not consume the
+      // one-shot flag before any request was made. The advisory request must
+      // never break the click handler that called it.
+      void navigator.storage.persist().catch(() => {});
+      persistenceRequested = true;
+    } catch {
+      // persist() threw synchronously; the latch stays unconsumed so a
+      // later gesture can retry.
+    }
   }
 }
 

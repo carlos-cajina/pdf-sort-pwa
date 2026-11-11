@@ -304,6 +304,11 @@ async function assertNotInProcessed(
     if (isNotFound(error)) {
       return;
     }
+    if (isTypeMismatch(error)) {
+      // A subdirectory named like the original occupies the name just as
+      // much as a file would: treat it as an archived-original collision.
+      throw new ProcessedCollisionError(name);
+    }
     throw error;
   }
   throw new ProcessedCollisionError(name);
@@ -311,6 +316,10 @@ async function assertNotInProcessed(
 
 function isNotFound(error: unknown): boolean {
   return error instanceof DOMException && error.name === "NotFoundError";
+}
+
+function isTypeMismatch(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "TypeMismatchError";
 }
 
 function errorMessage(error: unknown): string {
