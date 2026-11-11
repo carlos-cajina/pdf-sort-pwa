@@ -1,0 +1,358 @@
+export type FakeEntry =
+  | { kind: "file"; name: string; file: File }
+  | { kind: "directory"; name: string; entries: FakeEntry[] };
+
+export type FakeDirOptions = {
+  name?: string;
+  permission?: "granted" | "prompt" | "denied";
+};
+
+export function fakeFile(name: string, content: string | Blob = ""): FakeEntry {
+  const blob = content instanceof Blob ? content : new Blob([content]);
+  return { kind: "file", name, file: new File([blob], name) };
+}
+
+// Live child state per directory entry, shared by every handle that wraps the
+// entry (the `entries` array is only the seed). Without this, a directory
+// fetched twice would see different children, and files created inside a
+// `{ create: true }` subdirectory would vanish on re-fetch.
+const liveChildren = new WeakMap<FakeEntry, Map<string, FakeEntry>>();
+
+function childrenOf(entry: FakeEntry): Map<string, FakeEntry> {
+  let children = liveChildren.get(entry);
+  if (!children) {
+    children = new Map<string, FakeEntry>();
+    if (entry.kind === "directory") {
+      for (const child of entry.entries) {
+        children.set(child.name, child);
+      }
+    }
+    liveChildren.set(entry, children);
+  }
+  return children;
+}
+
+export function fakeDir(
+  entries: FakeEntry[] = [],
+  options: FakeDirOptions = {}
+): FileSystemDirectoryHandle {
+  const children = new Map<string, FakeEntry>();
+  for (const entry of entries) {
+    children.set(entry.name, entry);
+  }
+  return dirHandle(options.name ?? "", children, options.permission ?? "prompt");
+}
+
+function dirHandle(
+  name: string,
+  children: Map<string, FakeEntry>,
+  initialPermission: "granted" | "prompt" | "denied"
+): FileSystemDirectoryHandle {
+  let permission = initialPermission;
+
+  const dir: any = {
+    kind: "directory",
+    name,
+
+    async *values(): AsyncIterableIterator<FileSystemHandle> {
+      for (const entry of children.values()) {
+        if (entry.kind === "file") {
+          yield fileHandle(entry) as unknown as FileSystemHandle;
+        } else {
+          yield dirHandle(entry.name, childrenOf(entry), permission) as FileSystemHandle;
+        }
+      }
+    },
+
+    async getFileHandle(
+      entryName: string,
+      options?: { create?: boolean }
+    ): Promise<FileSystemFileHandle> {
+      const entry = children.get(entryName);
+      if (entry && entry.kind === "file") {
+        return fileHandle(entry) as unknown as FileSystemFileHandle;
+      }
+      if (!entry && options?.create) {
+        const created: FakeEntry = { kind: "file", name: entryName, file: new File([], entryName) };
+        children.set(entryName, created);
+        return fileHandle(created) as unknown as FileSystemFileHandle;
+      }
+      throw new DOMException(`Entry ${entryName} not found`, "NotFoundError");
+    },
+
+    async getDirectoryHandle(
+      entryName: string,
+      options?: { create?: boolean }
+    ): Promise<FileSystemDirectoryHandle> {
+      const entry = children.get(entryName);
+      if (entry && entry.kind === "directory") {
+        return dirHandle(entry.name, childrenOf(entry), permission);
+      }
+      if (!entry && options?.create) {
+        const created: FakeEntry = { kind: "directory", name: entryName, entries: [] };
+        children.set(entryName, created);
+        return dirHandle(entryName, childrenOf(created), permission);
+      }
+      throw new DOMException(`Directory ${entryName} not found`, "NotFoundError");
+    },
+
+    async removeEntry(entryName: string, _options?: { recursive?: boolean }): Promise<void> {
+      if (!children.has(entryName)) {
+        throw new DOMException(`Entry ${entryName} not found`, "NotFoundError");
+      }
+      children.delete(entryName);
+    },
+
+    async queryPermission(
+      _descriptor?: { mode?: FileSystemPermissionMode }
+    ): Promise<PermissionState> {
+      return permission;
+    },
+
+    async requestPermission(
+      _descriptor?: { mode?: FileSystemPermissionMode }
+    ): Promise<PermissionState> {
+      if (permission === "prompt") {
+        permission = "granted";
+      }
+      return permission;
+    },
+
+    async isSameEntry(other: FileSystemHandle): Promise<boolean> {
+      return other === dir;
+    },
+
+    async remove(_options?: { recursive?: boolean }): Promise<void> {
+      // no-op for the in-memory double
+    },
+  };
+
+  return dir as FileSystemDirectoryHandle;
+}
+
+function fileHandle(entry: Extract<FakeEntry, { kind: "file" }>): any {
+  return {
+    kind: "file",
+    name: entry.name,
+
+    async getFile(): Promise<File> {
+      return entry.file;
+    },
+
+    async createWritable(): Promise<FileSystemWritableFileStream> {
+      const chunks: BlobPart[] = [];
+      return {
+        async write(data: any) {
+          if (data instanceof Blob) {
+            chunks.push(data);
+          } else if (typeof data === "string") {
+            chunks.push(data);
+          } else if (data && data.type === "write" && data.data !== undefined) {
+            chunks.push(data.data);
+          }
+        },
+        async close() {
+          entry.file = new File(chunks, entry.name);
+        },
+        async seek(_position: number) {
+          // no-op stub
+        },
+        async truncate(_size: number) {
+          chunks.length = 0;
+        },
+      } as unknown as FileSystemWritableFileStream;
+    },
+
+    async queryPermission(
+      _descriptor?: { mode?: FileSystemPermissionMode }
+    ): Promise<PermissionState> {
+      return "granted";
+    },
+
+    async requestPermission(
+      _descriptor?: { mode?: FileSystemPermissionMode }
+    ): Promise<PermissionState> {
+      return "granted";
+    },
+
+    async isSameEntry(other: FileSystemHandle): Promise<boolean> {
+      return other === this;
+    },
+
+    async remove(): Promise<void> {
+      // no-op stub
+    },
+  };
+}
+
+class FakeDOMStringList {
+  private items: string[] = [];
+
+  contains(value: string): boolean {
+    return this.items.includes(value);
+  }
+
+  item(index: number): string | null {
+    return this.items[index] ?? null;
+  }
+
+  get length(): number {
+    return this.items.length;
+  }
+
+  add(value: string): void {
+    if (!this.items.includes(value)) {
+      this.items.push(value);
+    }
+  }
+}
+
+class FakeDB {
+  readonly objectStoreNames = new FakeDOMStringList();
+  private closed = false;
+
+  constructor(private stores: Map<string, Map<IDBValidKey, unknown>>) {}
+
+  /** Matches the real API; a closed connection refuses new transactions. */
+  close(): void {
+    this.closed = true;
+  }
+
+  createObjectStore(name: string): unknown {
+    const store = new Map<IDBValidKey, unknown>();
+    this.stores.set(name, store);
+    this.objectStoreNames.add(name);
+    return { name };
+  }
+
+  transaction(
+    storeNames: string | string[],
+    _mode?: IDBTransactionMode
+  ): {
+    objectStore(name: string): FakeObjectStore;
+    oncomplete: ((event: unknown) => void) | null;
+    onerror: ((event: unknown) => void) | null;
+    onabort: ((event: unknown) => void) | null;
+  } {
+    if (this.closed) {
+      throw new DOMException("Database connection is closed", "InvalidStateError");
+    }
+    const names = Array.isArray(storeNames) ? storeNames : [storeNames];
+    // Fake transaction lifecycle: requests resolve in one microtask, the
+    // transaction completes in the next, mirroring the real ordering so
+    // oncomplete can never beat a pending request.
+    const tx = {
+      oncomplete: null as ((event: unknown) => void) | null,
+      onerror: null as ((event: unknown) => void) | null,
+      onabort: null as ((event: unknown) => void) | null,
+    };
+    queueMicrotask(() => {
+      queueMicrotask(() => {
+        tx.oncomplete?.({ target: tx });
+      });
+    });
+    // Augment `tx` itself: the caller assigns oncomplete/onabort on the
+    // object it receives, and the completion closure must read that same
+    // object (a spread would copy the null fields by value).
+    return Object.assign(tx, {
+      objectStore: (name: string): FakeObjectStore => {
+        const data = this.stores.get(name) ?? new Map<IDBValidKey, unknown>();
+        // Lazily register a store that was never created, matching IDB behavior well enough for tests.
+        if (!this.stores.has(name)) {
+          this.stores.set(name, data);
+          this.objectStoreNames.add(name);
+        }
+        return new FakeObjectStore(data);
+      },
+    });
+  }
+}
+
+class FakeObjectStore {
+  constructor(private data: Map<IDBValidKey, unknown>) {}
+
+  put(value: unknown, key?: IDBValidKey): IDBRequest {
+    const request = newFakeRequest();
+    queueMicrotask(() => {
+      try {
+        if (key === undefined) {
+          throw new DOMException("Key required", "DataError");
+        }
+        this.data.set(String(key), value);
+        (request as any).result = key;
+        (request as any).readyState = "done";
+        if (request.onsuccess) request.onsuccess({ target: request } as any);
+      } catch (error) {
+        (request as any).error = error;
+        if (request.onerror) request.onerror({ target: request } as any);
+      }
+    });
+    return request;
+  }
+
+  get(key: IDBValidKey): IDBRequest {
+    const request = newFakeRequest();
+    queueMicrotask(() => {
+      (request as any).result = this.data.get(String(key));
+      (request as any).readyState = "done";
+      if (request.onsuccess) request.onsuccess({ target: request } as any);
+    });
+    return request;
+  }
+}
+
+function newFakeRequest(): IDBRequest {
+  return {
+    result: undefined,
+    error: null,
+    onsuccess: null,
+    onerror: null,
+    readyState: "pending",
+  } as unknown as IDBRequest;
+}
+
+export function installFakeIndexedDB(): void {
+  // Storage outlives connections: each open() hands out a fresh FakeDB
+  // connection over the same underlying stores, like real IndexedDB.
+  const storage = new Map<string, Map<IDBValidKey, unknown>>();
+  const objectStoreNames = new FakeDOMStringList();
+
+  (globalThis as any).indexedDB = {
+    open(name: string, version = 1): IDBOpenDBRequest {
+      const request: any = {
+        result: null,
+        error: null,
+        onsuccess: null,
+        onerror: null,
+        onupgradeneeded: null,
+        readyState: "pending",
+      };
+
+      queueMicrotask(() => {
+        let upgraded = false;
+        if (!objectStoreNames.contains(name)) {
+          objectStoreNames.add(name);
+          upgraded = true;
+        }
+        const db = new FakeDB(storage);
+        request.result = db;
+
+        if (upgraded && request.onupgradeneeded) {
+          request.transaction = null;
+          request.onupgradeneeded({
+            target: request,
+            oldVersion: 0,
+            newVersion: version,
+          });
+        }
+
+        request.readyState = "done";
+        if (request.onsuccess) {
+          request.onsuccess({ target: request });
+        }
+      });
+
+      return request as IDBOpenDBRequest;
+    },
+  };
+}

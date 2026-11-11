@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Target browsers: Chrome/Edge. Elsewhere show a "needs Chrome or Edge" banner (`'showDirectoryPicker' in window` check). No other fallback.
-- The Python package is untouched: `pdf_sort/` and `tests/` are never modified; `python3 -m pytest tests/ -q` must stay 171 passing at every commit.
+- The Python package is untouched: `pdf_sort/` and `tests/` are never modified; `python3 -m pytest tests/ -q` must stay 177 passing (baseline as of 2026-11-09) at every commit.
 - TypeScript strict mode. No UI framework. No network calls and no CDN fetches at runtime.
 - Pin exact versions (`--save-exact`) of `pdfjs-dist`, `vite`, `vitest`, `serve`, `vite-plugin-pwa`, `@types/wicg-file-system-access`, `typescript` in `app/package.json`; commit the lockfile.
 - Filenames: `transf{Source}_to_{Dest}_x{Amount}{_suffix}.pdf`; amounts formatted with Python `f"{x:,.2f}"` semantics (round-half-even on the exact binary double, thousands commas); month abbreviations hardcoded English `Jan`–`Dec`.
@@ -491,4 +491,4 @@ After Task 13, before handover to the human partner, run the full gates in one p
 cd app && npm test && npm run build && npx tsx scripts/parity/parity.mts && cd .. && python3 -m pytest tests/ -q
 ```
 
-Expected: all vitest suites pass; build exits 0; parity `N/N matched` on the real corpus; Python suite still `171 passed`. Then one manual install-and-offline check on 4173 per `app/README.md`.
+Expected: all vitest suites pass; build exits 0; parity `N/N matched` on the real corpus; Python suite still `177 passed`. Then one manual install-and-offline check on 4173 per `app/README.md`.

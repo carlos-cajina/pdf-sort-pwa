@@ -42,6 +42,12 @@ python3 -m pdf_sort --execute --overwrite --redact
 
 ---
 
+## Web app
+
+An installable PWA version of the tool lives in `app/`. Build it, serve it on the fixed port, and install it from Chrome/Edge for offline use. See [`app/README.md`](app/README.md) for commands, the fixed-port rule, and the cross-engine parity harness.
+
+---
+
 ## Usage
 
 ```
